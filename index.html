@@ -1,0 +1,881 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QazTracker Vision</title>
+<meta name="description" content="Облачная СКУД для ферм и предприятий Казахстана: проход по лицу, въезд по номерам, тревоги в Telegram и табель в Excel по правилам РК. Оборудование Hikvision, данные хранятся в Казахстане.">
+<meta name="theme-color" content="#f3f6f6">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:site_name" content="QazTracker Vision">
+<meta property="og:title" content="QazTracker Vision — СКУД для ферм и предприятий Казахстана">
+<meta property="og:description" content="Облачная СКУД для ферм и предприятий Казахстана: проход по лицу, въезд по номерам, тревоги в Telegram и табель в Excel по правилам РК. Оборудование Hikvision, данные хранятся в Казахстане.">
+<meta name="twitter:card" content="summary_large_image">
+<meta property="og:url" content="https://daulet-rama.github.io/qaztracker-landing/">
+<meta property="og:image" content="https://daulet-rama.github.io/qaztracker-landing/og.png">
+<link rel="canonical" href="https://daulet-rama.github.io/qaztracker-landing/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f7a3f'/%3E%3Ccircle cx='15' cy='15' r='7.5' fill='none' stroke='white' stroke-width='3'/%3E%3Cpath d='M19 19l6 6' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Onest:wght@400..700&family=Unbounded:wght@500..600&display=swap">
+<link rel="stylesheet" href="styles.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c.8-3.6 3.6-5.6 7-5.6s6.2 2 7 5.6"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="16.5" cy="7.5" r="2.6"/><path d="M15.5 13.2c2.6-.3 4.6 1.3 5.1 4.3"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><circle cx="12" cy="10.5" r="2.6"/><path d="M8 16.5c.9-1.6 2.3-2.4 4-2.4s3.1.8 4 2.4"/></symbol>
+  <symbol id="i-truck" viewBox="0 0 24 24"><path d="M2.5 6.5h11v9h-11zM13.5 9.5h4l3 3v3h-7"/><circle cx="6.5" cy="17" r="1.8"/><circle cx="17" cy="17" r="1.8"/></symbol>
+  <symbol id="i-car" viewBox="0 0 24 24"><path d="M4 15.5v-3l2-4.5h12l2 4.5v3H4z"/><path d="M4 12.5h16"/><circle cx="7.5" cy="16.5" r="1.6"/><circle cx="16.5" cy="16.5" r="1.6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 15.5H3L12 4z"/><path d="M12 10v4.2M12 17.2v.1"/></symbol>
+  <symbol id="i-door" viewBox="0 0 24 24"><path d="M6 20.5V4.5h9.5v16M3.5 20.5h17"/><circle cx="12.6" cy="12.5" r=".6"/></symbol>
+  <symbol id="i-gate" viewBox="0 0 24 24"><path d="M4.5 20.5V8.5M3 20.5h3"/><path d="M4.5 10.5l16-3.5"/><path d="M8.5 9.6l1 2.4M12.5 8.7l1 2.4M16.5 7.8l1 2.4"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10.5a4 4 0 0 0 .4-8 6 6 0 0 0-11.5-1.3A4.7 4.7 0 0 0 7 18.5z"/></symbol>
+  <symbol id="i-chip" viewBox="0 0 24 24"><rect x="5.5" y="5.5" width="13" height="13" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3 7.5l12-3 1.5 6-12 3z"/><path d="M16.5 8.5l3.5-1v4l-3 .8"/><path d="M8 12.6l1 4.4H5v3.5"/></symbol>
+  <symbol id="i-fence" viewBox="0 0 24 24"><path d="M5 20V7l2-2.5L9 7v13M15 20V7l2-2.5L19 7v13M3 10.5h18M3 16h18"/></symbol>
+  <symbol id="i-barn" viewBox="0 0 24 24"><path d="M3 10l9-5.5 9 5.5M5 9v11.5h14V9"/><path d="M9.5 20.5v-6h5v6M9.5 14.5l5 6M14.5 14.5l-5 6"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11l8-6.5 8 6.5M6.5 9.5v10h11v-10"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-rot-l" viewBox="0 0 24 24"><path d="M5.5 8.5A7.5 7.5 0 1 1 4.5 13"/><path d="M5 3.8v4.9h4.9"/></symbol>
+  <symbol id="i-rot-r" viewBox="0 0 24 24"><path d="M18.5 8.5A7.5 7.5 0 1 0 19.5 13"/><path d="M19 3.8v4.9h-4.9"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8.5 5.5v13M15.5 5.5v13"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M7 9.5l5 5 5-5"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M20.5 4L3.5 11l6.5 2.5L12.5 20z"/><path d="M10 13.5L20.5 4"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M12 3.8a8.2 8.2 0 0 0-7 12.5L4 20.2l4-1a8.2 8.2 0 1 0 4-15.4z"/><path d="M9 9.2c.2 2.6 2.3 5 5.6 5.6l1-1.3-1.8-.9-.8.7a4.3 4.3 0 0 1-2.5-2.5l.7-.8-.9-1.8z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M6.5 3.8h3l1.5 4-2 1.3a10 10 0 0 0 5.9 5.9l1.3-2 4 1.5v3a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.5 6a2 2 0 0 1 2-2.2z"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="M4 7l8 6 8-6"/></symbol>
+  <symbol id="i-table" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9 4.5v15"/></symbol>
+  <symbol id="i-snow" viewBox="0 0 24 24"><path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9M9.5 4.5L12 6.5l2.5-2M9.5 19.5l2.5-2 2.5 2"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5l7 2.8v5.4c0 4.3-2.9 7.6-7 8.8-4.1-1.2-7-4.5-7-8.8V6.3z"/><path d="M9 12l2.2 2.2L15.5 10"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24"><rect x="3.5" y="7.5" width="15" height="9" rx="1.8"/><path d="M20.5 10.5v3M7 10.5v3M10 10.5v3"/></symbol>
+  <symbol id="i-offline" viewBox="0 0 24 24"><path d="M2.5 9a14 14 0 0 1 5-3M21.5 9a14 14 0 0 0-10.3-3.9M5.5 12.5a9 9 0 0 1 3.3-2M18.5 12.5a9 9 0 0 0-4-2.2M9 16a4.5 4.5 0 0 1 6 0M4 4l16 16"/><circle cx="12" cy="19.2" r=".7"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></symbol>
+  <!-- изометрические иллюстрации оборудования, 72×72 -->
+  <symbol id="ill-term" viewBox="0 0 72 72">
+    <ellipse cx="38" cy="64" rx="17" ry="4" fill="#0f2118" opacity=".12"/>
+    <path d="M24 13l5-2.5 20 8-5 2.5z" fill="#3a4741"/>
+    <path d="M44 21l5-2.5v37l-5 2.5z" fill="#141c18"/>
+    <path d="M24 13l20 8v37l-20-8z" fill="#1f2a26"/>
+    <path d="M27 18.5l14 5.6v19.2l-14-5.6z" fill="#2c4a3f"/>
+    <path d="M28.5 23v-3l3 1.2M39.5 26.2l-3-1.2M28.5 34.5v3l3 1.2M39.5 38v3l-3-1.2" stroke="#4fd17f" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+    <ellipse cx="34" cy="28.6" rx="2.6" ry="2.9" fill="#a9c4b5"/>
+    <path d="M29.6 36.4c.6-2.6 2.4-3.6 4.4-2.8s3.8 2.6 4.4 5.4" fill="#a9c4b5"/>
+    <path d="M28 46.2l12 4.8" stroke="#4fd17f" stroke-width="1.6" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="ill-term-fp" viewBox="0 0 72 72">
+    <ellipse cx="38" cy="64" rx="17" ry="4" fill="#0f2118" opacity=".12"/>
+    <path d="M24 13l5-2.5 20 8-5 2.5z" fill="#3a4741"/>
+    <path d="M44 21l5-2.5v37l-5 2.5z" fill="#141c18"/>
+    <path d="M24 13l20 8v37l-20-8z" fill="#1f2a26"/>
+    <path d="M27 18.5l14 5.6v14.6l-14-5.6z" fill="#2c4a3f"/>
+    <path d="M28.5 23v-3l3 1.2M39.5 26.2l-3-1.2" stroke="#4fd17f" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+    <ellipse cx="34" cy="28" rx="2.4" ry="2.7" fill="#a9c4b5"/>
+    <path d="M30 34.4c.6-2.2 2.2-3 4-2.3s3.4 2.2 4 4.6" fill="#a9c4b5"/>
+    <ellipse cx="34" cy="47" rx="3.6" ry="4.6" fill="#33413b" stroke="#6f8a7e" stroke-width="1"/>
+    <path d="M32.2 45.4c1-1.4 2.6-1.2 3.4.2M31.8 47.6c.8-2.2 3.2-2.4 4.4-.4" stroke="#a9c4b5" stroke-width=".9" fill="none" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="ill-zk" viewBox="0 0 72 72">
+    <ellipse cx="38" cy="64" rx="16" ry="4" fill="#0f2118" opacity=".12"/>
+    <path d="M25 16l5-2.5 18 7.2-5 2.5z" fill="#55605b"/>
+    <path d="M43 23.2l5-2.5v33.6l-5 2.5z" fill="#262d2a"/>
+    <path d="M25 16l18 7.2v33.6l-18-7.2z" fill="#3a4440"/>
+    <path d="M28 21l12 4.8v11l-12-4.8z" fill="#bfe3f0"/>
+    <path d="M30 27.4l8 3.2" stroke="#3a6a8c" stroke-width="1.4" stroke-linecap="round"/>
+    <path d="M30 31l5 2" stroke="#3a6a8c" stroke-width="1.4" stroke-linecap="round"/>
+    <ellipse cx="34" cy="45" rx="3.4" ry="4.4" fill="#22302a" stroke="#4fd17f" stroke-width="1.1"/>
+  </symbol>
+  <symbol id="ill-anpr" viewBox="0 0 72 72">
+    <ellipse cx="36" cy="64" rx="26" ry="4.5" fill="#0f2118" opacity=".12"/>
+    <path d="M17 20h4v44h-4z" fill="#7d8a92"/>
+    <path d="M21 20h1.6v44H21z" fill="#5f6b73"/>
+    <path d="M9 13.5l5-2.5 22 8.8-5 2.5z" fill="#ffffff"/>
+    <path d="M9 13.5l22 8.8v7.4l-22-8.8z" fill="#e3e8ec"/>
+    <path d="M31 22.3l5-2.5v7.4l-5 2.5z" fill="#c4ccd2"/>
+    <ellipse cx="33.5" cy="26" rx="1.8" ry="2.2" fill="#1b2531"/>
+    <path d="M12 22.5l6 2.4" stroke="#e5484d" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M38 48l6-3v14l-6 3z" fill="#b9c1ca"/>
+    <path d="M32 45l6 3v14l-6-3z" fill="#e3e8ec"/>
+    <path d="M32 45l6-3 6 3-6 3z" fill="#f4f6f8"/>
+    <path d="M41 49.5l27-13.5" stroke="#ffffff" stroke-width="3.4" stroke-linecap="round"/>
+    <path d="M41 49.5l27-13.5" stroke="#d2402f" stroke-width="3.4" stroke-dasharray="4.5 4.5" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="ill-cam" viewBox="0 0 72 72">
+    <ellipse cx="36" cy="64" rx="18" ry="4" fill="#0f2118" opacity=".12"/>
+    <path d="M14 30l6-3v34l-6 3z" fill="#9aa4ae"/>
+    <path d="M10 28l4 2v34l-4-2z" fill="#c4ccd2"/>
+    <path d="M17 40l10-4.6" stroke="#9aa4ae" stroke-width="3" stroke-linecap="round"/>
+    <path d="M24 22l26 10.4v11l-26-10.4z" fill="#f4f6f8"/>
+    <path d="M24 22l5-2.5 26 10.4-5 2.5z" fill="#ffffff"/>
+    <path d="M50 32.4l5-2.5v11l-5 2.5z" fill="#d2d8df"/>
+    <path d="M21 20l6-3 30 12-6 3z" fill="#e3e8ec"/>
+    <ellipse cx="52.5" cy="37.4" rx="2.6" ry="3.4" fill="#17202a"/>
+    <ellipse cx="52.2" cy="36.6" rx=".8" ry="1" fill="#6f8fa8"/>
+    <circle cx="29" cy="29.6" r="1.1" fill="#4fd17f"/>
+  </symbol>
+  <symbol id="ill-proc" viewBox="0 0 72 72">
+    <ellipse cx="38" cy="64" rx="18" ry="4" fill="#0f2118" opacity=".12"/>
+    <path d="M21 19l10-5 23 9.2-10 5z" fill="#eef2f5"/>
+    <path d="M44 28.2l10-5v29l-10 5z" fill="#b9c1ca"/>
+    <path d="M21 19l23 9.2v29l-23-9.2z" fill="#d6dce2"/>
+    <path d="M24 25.6l17 6.8v21l-17-6.8z" fill="#c9d0d7"/>
+    <path d="M26 33l9 3.6M26 36.4l9 3.6M26 39.8l9 3.6" stroke="#a8b2bc" stroke-width="1.2" stroke-linecap="round"/>
+    <circle cx="38.6" cy="31.6" r="4" fill="#2bd67b" opacity=".25"/>
+    <circle cx="38.6" cy="31.6" r="1.9" fill="#2bd67b"/>
+    <path d="M30 17.6v-9" stroke="#59626d" stroke-width="1.4" stroke-linecap="round"/>
+    <circle cx="30" cy="8" r="1.4" fill="#59626d"/>
+  </symbol>
+</svg>
+
+<a class="skip-link" href="#main">Перейти к содержанию</a>
+
+<header class="site-header" id="top">
+  <div class="site-header__inner">
+    <a class="brand" href="#top" aria-label="QazTracker Vision — в начало">
+      <span class="brand__mark" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="15" cy="15" r="7.5"/><path d="M19 19l6 6"/></svg></span>
+      <span class="brand__name">QazTracker <b>Vision</b></span>
+    </a>
+    <nav class="site-nav" aria-label="Разделы">
+      <a href="#how">Как работает</a>
+      <a href="#access">Проход и машины</a>
+      <a href="#alarms">Тревоги</a>
+      <a href="#timesheet">Табель</a>
+      <a href="#hardware">Оборудование</a>
+      <a href="#faq">Вопросы</a>
+    </nav>
+    <div class="site-header__contact" data-contact-header hidden></div>
+    <a class="btn btn--primary btn--sm" href="#pilot"><span class="btn-long">Запросить пилот</span><span class="btn-short">Заявка</span></a>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- Главный экран: тезис и живая ферма -->
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero__head">
+      <div class="hero__copy">
+        <p class="eyebrow">СКУД для ферм и предприятий Казахстана</p>
+        <h1 id="hero-title">Люди, машины и&nbsp;тревоги фермы на&nbsp;одном экране</h1>
+      </div>
+      <div class="hero__aside">
+        <p class="lede">QazTracker Vision пускает сотрудников по лицу, а машины по номерам. Тревоги присылает в Telegram, табель считает сам и отдаёт бухгалтеру в Excel. Оборудование — недорогой Hikvision, данные хранятся в Казахстане.</p>
+        <div class="cta-row">
+          <a class="btn btn--primary" href="#pilot">Запросить пилот</a>
+          <a class="btn btn--ghost" href="#how">Как это работает</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="world" id="world" data-site="north" data-mode="poster">
+      <div class="world__stage" id="world-stage">
+        <div class="world__poster" id="world-poster">
+          <picture class="world__poster-img">
+            <source media="(max-width: 760px)" srcset="img/poster-north-tall.webp" type="image/webp">
+            <img src="img/poster-north.webp" alt="" decoding="async" fetchpriority="high">
+          </picture>
+        </div>
+        <canvas class="world__canvas" id="world-canvas" aria-label="Трёхмерная модель демо-фермы. Нажмите на здание, машину или камеру, чтобы увидеть подробности." role="img"></canvas>
+      </div>
+
+      <div class="hud" id="hud">
+        <div class="hud__top glass" role="group" aria-label="Панель демо-приложения">
+          <span class="hud__logo">
+            <span class="brand__mark" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="15" cy="15" r="7.5"/><path d="M19 19l6 6"/></svg></span>
+            <span class="hud__logo-text">QazTracker <b>Vision</b></span>
+          </span>
+
+          <div class="hud-search" id="hud-search">
+            <button class="icon-btn hud-search__toggle" type="button" id="search-toggle" aria-label="Поиск" aria-expanded="false" aria-controls="search-box"><svg class="i"><use href="#i-search"/></svg></button>
+            <div class="hud-search__box" id="search-box">
+              <svg class="i hud-search__icon" aria-hidden="true"><use href="#i-search"/></svg>
+              <label class="sr-only" for="search-input">Поиск по ферме</label>
+              <input id="search-input" type="search" autocomplete="off" spellcheck="false" placeholder="Сотрудник, госномер, устройство…" role="combobox" aria-expanded="false" aria-controls="search-results" aria-autocomplete="list">
+              <kbd class="hud-search__kbd" aria-hidden="true">/</kbd>
+              <ul class="hud-search__results glass" id="search-results" role="listbox" aria-label="Найдено" hidden></ul>
+            </div>
+          </div>
+
+          <div class="site-switch" id="site-switch">
+            <button class="site-switch__btn" type="button" id="site-switch-btn" aria-haspopup="listbox" aria-expanded="false" aria-controls="site-switch-list">
+              <span class="site-switch__badge" data-site-badge>СВ</span>
+              <span class="site-switch__text">
+                <span class="site-switch__name" data-site-name>Ферма «Север»<span class="ss-temp"> · −32&nbsp;°C</span></span>
+                <span class="site-switch__meta" data-site-meta>23 на месте · 1 тревога</span>
+              </span>
+              <svg class="i site-switch__chev" aria-hidden="true"><use href="#i-chevron"/></svg>
+            </button>
+            <ul class="site-switch__list glass" id="site-switch-list" role="listbox" aria-label="Объекты" hidden></ul>
+          </div>
+
+          <span class="live-pill">
+            <span class="live-pill__dot" aria-hidden="true"></span>
+            <span class="live-pill__label">Демо</span>
+            <time class="live-pill__time" id="live-clock">--:--</time>
+          </span>
+
+          <span class="hud-user">
+            <span class="hud-user__avatar" aria-hidden="true">ЕК</span>
+            <span class="hud-user__text"><b>Ербол К.</b><span>Владелец</span></span>
+          </span>
+        </div>
+
+        <div class="hud__kpis" id="hud-kpis" role="group" aria-label="Сводка по объекту">
+          <div class="kpi glass" data-kpi="onSite">
+            <span class="kpi__icon" aria-hidden="true"><svg class="i"><use href="#i-users"/></svg></span>
+            <span class="kpi__body">
+              <span class="kpi__label"><span class="kpi__long">На территории</span><span class="kpi__short">На месте</span></span>
+              <span class="kpi__row"><b class="kpi__value" data-value>23</b><span class="kpi__delta" data-delta></span></span>
+              <span class="kpi__sub" data-sub>не пришли: 8 из 31</span>
+            </span>
+          </div>
+          <div class="kpi glass" data-kpi="passes">
+            <span class="kpi__icon" aria-hidden="true"><svg class="i"><use href="#i-scan"/></svg></span>
+            <span class="kpi__body">
+              <span class="kpi__label"><span class="kpi__long">Проходов сегодня</span><span class="kpi__short">Проходы</span></span>
+              <span class="kpi__row"><b class="kpi__value" data-value>41</b><span class="kpi__delta" data-delta></span></span>
+              <span class="kpi__sub" data-sub>по лицу, с 00:00</span>
+            </span>
+          </div>
+          <div class="kpi glass" data-kpi="vehicles">
+            <span class="kpi__icon" aria-hidden="true"><svg class="i"><use href="#i-truck"/></svg></span>
+            <span class="kpi__body">
+              <span class="kpi__label"><span class="kpi__long">Машин сегодня</span><span class="kpi__short">Машины</span></span>
+              <span class="kpi__row"><b class="kpi__value" data-value>6</b><span class="kpi__delta" data-delta></span></span>
+              <span class="kpi__sub" data-sub>сейчас внутри: 2</span>
+            </span>
+          </div>
+          <div class="kpi glass" data-kpi="alarmsOpen">
+            <span class="kpi__icon" aria-hidden="true"><svg class="i"><use href="#i-alert"/></svg></span>
+            <span class="kpi__body">
+              <span class="kpi__label"><span class="kpi__long">Открытые тревоги</span><span class="kpi__short">Тревоги</span></span>
+              <span class="kpi__row"><b class="kpi__value" data-value>1</b><span class="kpi__delta" data-delta></span></span>
+              <span class="kpi__sub" data-sub>решено сегодня: 2</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="hud__controls glass" role="group" aria-label="Управление видом">
+          <button class="icon-btn" type="button" data-ctl="zoom-in" aria-label="Приблизить" title="Приблизить"><svg class="i"><use href="#i-plus"/></svg></button>
+          <button class="icon-btn" type="button" data-ctl="zoom-out" aria-label="Отдалить" title="Отдалить"><svg class="i"><use href="#i-minus"/></svg></button>
+          <span class="hud__controls-sep" aria-hidden="true"></span>
+          <button class="icon-btn" type="button" data-ctl="rot-l" aria-label="Повернуть влево" title="Повернуть влево"><svg class="i"><use href="#i-rot-l"/></svg></button>
+          <button class="icon-btn" type="button" data-ctl="rot-r" aria-label="Повернуть вправо" title="Повернуть вправо"><svg class="i"><use href="#i-rot-r"/></svg></button>
+          <button class="icon-btn" type="button" data-ctl="home" aria-label="Вся ферма" title="Вся ферма"><svg class="i"><use href="#i-home"/></svg></button>
+          <span class="hud__controls-sep" aria-hidden="true"></span>
+          <button class="icon-btn" type="button" data-ctl="pause" id="ctl-pause" aria-label="Остановить демо" aria-pressed="false" title="Остановить демо"><svg class="i"><use href="#i-pause"/></svg></button>
+        </div>
+
+        <aside class="hud__detail glass" id="hud-detail" aria-label="Подробности" aria-live="off" tabindex="-1"></aside>
+
+        <section class="hud__timeline glass" id="hud-timeline" aria-label="Путь сотрудника"></section>
+
+        <section class="hud__feed glass" id="hud-feed" aria-label="Журнал событий">
+          <button class="hud__feed-handle" type="button" id="feed-handle" aria-expanded="false" aria-controls="feed-body">
+            <span class="hud__feed-handle-title">Журнал</span>
+            <span class="hud__feed-handle-last" id="feed-last">События фермы</span>
+            <svg class="i" aria-hidden="true"><use href="#i-chevron"/></svg>
+          </button>
+          <div class="hud__feed-body" id="feed-body">
+            <div class="feed-tabs" role="tablist" aria-label="Тип событий">
+              <button class="feed-tab" role="tab" type="button" id="tab-passes" aria-selected="true" aria-controls="panel-passes" data-tab="passes">Проходы <span class="feed-tab__count" data-count="passes">0</span></button>
+              <button class="feed-tab" role="tab" type="button" id="tab-vehicles" aria-selected="false" aria-controls="panel-vehicles" data-tab="vehicles" tabindex="-1">Машины <span class="feed-tab__count" data-count="vehicles">0</span></button>
+              <button class="feed-tab" role="tab" type="button" id="tab-alarms" aria-selected="false" aria-controls="panel-alarms" data-tab="alarms" tabindex="-1">Тревоги <span class="feed-tab__count" data-count="alarms">0</span></button>
+            </div>
+            <div class="feed-panel" role="tabpanel" id="panel-passes" aria-labelledby="tab-passes" data-tabpanel="passes"><ul class="feed-list" data-panel="passes"></ul></div>
+            <div class="feed-panel" role="tabpanel" id="panel-vehicles" aria-labelledby="tab-vehicles" data-tabpanel="vehicles" hidden><ul class="feed-list" data-panel="vehicles"></ul></div>
+            <div class="feed-panel" role="tabpanel" id="panel-alarms" aria-labelledby="tab-alarms" data-tabpanel="alarms" hidden><ul class="feed-list" data-panel="alarms"></ul></div>
+          </div>
+        </section>
+
+        <div class="hud__toast" id="hud-toast" aria-hidden="true"></div>
+        <p class="hud__hint glass" id="hud-hint" hidden></p>
+        <p class="hud__demo-note"><span class="dn-long">Демо-ферма: люди, машины и события выдуманы</span><span class="dn-short">Демо: данные выдуманы</span></p>
+        <div class="hud__paused glass" id="hud-paused" hidden>
+          <span><b>Демо на паузе</b><span>Ферма оживёт после запуска</span></span>
+          <button class="btn btn--primary btn--sm" type="button" id="hud-paused-play"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg>Запустить</button>
+        </div>
+      </div>
+
+      <div class="sr-only" role="status" aria-live="polite" id="live-announcer"></div>
+    </div>
+    <p class="hero__caption">Это живое демо: люди, машины и события выдуманы. Нажмите на проходную, въезд, склад или процессор и откройте дверь кнопкой в карточке.</p>
+  </section>
+
+  <!-- 1. Что вы видите каждый день -->
+  <section class="section daily" id="daily" aria-labelledby="daily-title">
+    <div class="wrap daily__grid">
+      <div class="daily__copy">
+        <p class="eyebrow">Каждый день</p>
+        <h2 id="daily-title">Что вы видите каждый день</h2>
+        <p class="section-lede">Утром открываете телефон и за минуту понимаете, как прошли ночь и смена. Без звонков охраннику.</p>
+        <dl class="daily__list">
+          <div class="daily__item">
+            <dt><svg class="i" aria-hidden="true"><use href="#i-users"/></svg>Кто на территории</dt>
+            <dd>Список людей на ферме прямо сейчас. Кто не пришёл по графику, видно отдельной строкой.</dd>
+          </div>
+          <div class="daily__item">
+            <dt><svg class="i" aria-hidden="true"><use href="#i-truck"/></svg>Какие машины въехали</dt>
+            <dd>Номер, время въезда и выезда. Молоковоз, кормовоз и чужая машина, которую шлагбаум не пустил.</dd>
+          </div>
+          <div class="daily__item">
+            <dt><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg>Тревоги</dt>
+            <dd>Взлом двери, человек у забора ночью, чужое лицо на проходной. Уведомление приходит в Telegram сразу.</dd>
+          </div>
+          <div class="daily__item">
+            <dt><svg class="i" aria-hidden="true"><use href="#i-phone"/></svg>С телефона и компьютера</dt>
+            <dd>Сайт открывается в браузере, ставить ничего не нужно. У владельца, администратора и охраны свои права.</dd>
+          </div>
+        </dl>
+      </div>
+
+      <figure class="phone" aria-label="Пример экрана на телефоне">
+        <div class="phone__frame">
+          <div class="phone__notch" aria-hidden="true"></div>
+          <div class="tg-note" aria-label="Уведомление в Telegram">
+            <span class="tg-note__app"><svg class="i" aria-hidden="true"><use href="#i-send"/></svg>Telegram · QazTracker</span>
+            <pre class="tg-note__text">Тревога: Пересечение линии
+Где: Периметр, северная сторона
+Объект: Ферма «Север»
+Время: 03:12</pre>
+          </div>
+          <div class="phone__screen">
+            <div class="phone__head">
+              <b>Ферма «Север»</b><span>−32&nbsp;°C · сегодня</span>
+            </div>
+            <div class="phone__big">
+              <span class="phone__label">На территории</span>
+              <span class="phone__num">23 <small>из 31</small></span>
+              <span class="meter" aria-hidden="true"><span style="width:74%"></span></span>
+            </div>
+            <div class="phone__block">
+              <span class="phone__label">Не пришли по графику</span>
+              <div class="phone__chips"><span>Исаев М.</span><span>Жакупова А.</span><span>Петренко О.</span><span class="muted">ещё 5</span></div>
+            </div>
+            <div class="phone__block">
+              <span class="phone__label">Машины</span>
+              <div class="phone__row"><span class="plate plate--sm"><span class="plate__kz">KZ</span><span class="plate__num">512 AMK</span><span class="plate__reg">15</span></span><span>молоковоз</span><time>07:40</time></div>
+              <div class="phone__row"><span class="plate plate--sm"><span class="plate__kz">KZ</span><span class="plate__num">347 BKS</span><span class="plate__reg">15</span></span><span>кормовоз КамАЗ</span><time>08:15</time></div>
+            </div>
+            <div class="phone__block">
+              <span class="phone__label">Тревоги ночью</span>
+              <div class="phone__row"><span class="pill pill--muted">Решено</span><span>Пересечение линии</span><time>03:12</time></div>
+            </div>
+          </div>
+        </div>
+        <figcaption>Так выглядит утро владельца. В Telegram по умолчанию нет имён и фото.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- 2. Как это работает -->
+  <section class="section how" id="how" aria-labelledby="how-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Схема</p>
+        <h2 id="how-title">Как это работает</h2>
+        <p class="section-lede">События идут от устройств на ферме к вам. Команды идут обратно тем же путём.</p>
+      </div>
+
+      <div class="flow" role="img" aria-label="Терминалы и камеры Hikvision передают события процессору на ферме, процессор по шифрованному каналу отправляет их в облако в Казахстане, облако показывает их вам на сайте, в телефоне, в Telegram и в Excel. Команды идут в обратную сторону.">
+        <svg class="flow__svg flow__svg--wide" viewBox="0 0 1160 250" aria-hidden="true">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1l8 4-8 4" class="flow__arrowhead"/></marker>
+          </defs>
+          <!-- узлы -->
+          <g class="flow__node"><rect x="5" y="62" width="245" height="110" rx="18"/><text x="29" y="104" class="flow__k">1</text><text x="29" y="134" class="flow__t">Терминалы и камеры</text><text x="29" y="156" class="flow__s">Hikvision · ZKTeco</text></g>
+          <g class="flow__node flow__node--accent"><rect x="310" y="62" width="245" height="110" rx="18"/><text x="334" y="104" class="flow__k">2</text><text x="334" y="134" class="flow__t">Процессор на ферме</text><text x="334" y="156" class="flow__s">мини-ПК в шкафу</text></g>
+          <g class="flow__node"><rect x="615" y="62" width="245" height="110" rx="18"/><text x="639" y="104" class="flow__k">3</text><text x="639" y="134" class="flow__t">Облако в Казахстане</text><text x="639" y="156" class="flow__s">серверы в РК</text></g>
+          <g class="flow__node flow__node--dark"><rect x="910" y="62" width="245" height="110" rx="18"/><text x="934" y="104" class="flow__k">4</text><text x="934" y="134" class="flow__t">Вы</text><text x="934" y="156" class="flow__s">сайт, телефон, Telegram, Excel</text></g>
+          <!-- линии событий -->
+          <path id="fp1" class="flow__line" d="M250 104 H310" marker-end="url(#arr)"/>
+          <path id="fp2" class="flow__line flow__line--secure" d="M555 104 H615" marker-end="url(#arr)"/>
+          <path id="fp3" class="flow__line" d="M860 104 H910" marker-end="url(#arr)"/>
+          <!-- линии команд -->
+          <path class="flow__line flow__line--back" d="M910 142 H860" marker-end="url(#arr)"/>
+          <path class="flow__line flow__line--back" d="M615 142 H555" marker-end="url(#arr)"/>
+          <path class="flow__line flow__line--back" d="M310 142 H250" marker-end="url(#arr)"/>
+          <!-- ZKTeco напрямую -->
+          <path id="fpz" class="flow__line flow__line--direct" d="M128 62 C 128 30, 738 30, 738 62" marker-end="url(#arr)"/>
+          <text x="433" y="20" class="flow__note" text-anchor="middle">ZKTeco может работать с облаком напрямую</text>
+          <text x="580" y="214" class="flow__note" text-anchor="middle">← обратно: загрузить сотрудников и фото на терминалы, открыть дверь</text>
+          <!-- импульсы данных -->
+          <g class="flow__pulses">
+            <circle r="5" class="flow__pulse"><animateMotion dur="1.2s" repeatCount="indefinite" begin="0s"><mpath href="#fp1"/></animateMotion></circle>
+            <circle r="5" class="flow__pulse"><animateMotion dur="1.2s" repeatCount="indefinite" begin="0.4s"><mpath href="#fp2"/></animateMotion></circle>
+            <circle r="5" class="flow__pulse"><animateMotion dur="1.2s" repeatCount="indefinite" begin="0.8s"><mpath href="#fp3"/></animateMotion></circle>
+            <circle r="4" class="flow__pulse flow__pulse--direct"><animateMotion dur="3s" repeatCount="indefinite"><mpath href="#fpz"/></animateMotion></circle>
+          </g>
+        </svg>
+
+        <svg class="flow__svg flow__svg--tall" viewBox="0 0 340 600" aria-hidden="true">
+          <g class="flow__node"><rect x="10" y="10" width="260" height="96" rx="16"/><text x="30" y="46" class="flow__k">1</text><text x="30" y="72" class="flow__t">Терминалы и камеры</text><text x="30" y="92" class="flow__s">Hikvision · ZKTeco</text></g>
+          <g class="flow__node flow__node--accent"><rect x="10" y="170" width="260" height="96" rx="16"/><text x="30" y="206" class="flow__k">2</text><text x="30" y="232" class="flow__t">Процессор на ферме</text><text x="30" y="252" class="flow__s">мини-ПК в шкафу</text></g>
+          <g class="flow__node"><rect x="10" y="330" width="260" height="96" rx="16"/><text x="30" y="366" class="flow__k">3</text><text x="30" y="392" class="flow__t">Облако в Казахстане</text><text x="30" y="412" class="flow__s">серверы в РК</text></g>
+          <g class="flow__node flow__node--dark"><rect x="10" y="490" width="260" height="96" rx="16"/><text x="30" y="526" class="flow__k">4</text><text x="30" y="552" class="flow__t">Вы</text><text x="30" y="572" class="flow__s">сайт, телефон, Telegram, Excel</text></g>
+          <path id="fv1" class="flow__line" d="M110 106 V170" marker-end="url(#arr)"/>
+          <path id="fv2" class="flow__line flow__line--secure" d="M110 266 V330" marker-end="url(#arr)"/>
+          <path id="fv3" class="flow__line" d="M110 426 V490" marker-end="url(#arr)"/>
+          <path class="flow__line flow__line--back" d="M170 490 V426" marker-end="url(#arr)"/>
+          <path class="flow__line flow__line--back" d="M170 330 V266" marker-end="url(#arr)"/>
+          <path class="flow__line flow__line--back" d="M170 170 V106" marker-end="url(#arr)"/>
+          <path id="fvz" class="flow__line flow__line--direct" d="M270 58 C 330 58, 330 378, 270 378" marker-end="url(#arr)"/>
+          <text x="186" y="142" class="flow__note">команды</text>
+          <text x="186" y="302" class="flow__note">команды</text>
+          <text x="186" y="462" class="flow__note">команды</text>
+          <text x="318" y="160" class="flow__note" transform="rotate(90 318 160)">ZKTeco напрямую</text>
+          <g class="flow__pulses">
+            <circle r="5" class="flow__pulse"><animateMotion dur="1.1s" repeatCount="indefinite"><mpath href="#fv1"/></animateMotion></circle>
+            <circle r="5" class="flow__pulse"><animateMotion dur="1.1s" repeatCount="indefinite" begin="0.37s"><mpath href="#fv2"/></animateMotion></circle>
+            <circle r="5" class="flow__pulse"><animateMotion dur="1.1s" repeatCount="indefinite" begin="0.74s"><mpath href="#fv3"/></animateMotion></circle>
+            <circle r="4" class="flow__pulse flow__pulse--direct"><animateMotion dur="3s" repeatCount="indefinite"><mpath href="#fvz"/></animateMotion></circle>
+          </g>
+        </svg>
+      </div>
+
+      <ol class="flow-steps">
+        <li>
+          <h3>Терминалы и камеры</h3>
+          <p>Терминалы Hikvision на проходной и складе узнают лицо. Камера на въезде читает номер, камеры на заборе следят за линией. ZKTeco можно поставить рядом, например в конторе.</p>
+        </li>
+        <li>
+          <h3>Процессор на ферме</h3>
+          <p>Маленький компьютер в шкафу. Устройства в сети фермы отправляют события ему. Он держит шифрованный канал в облако, а без интернета хранит события до 30&nbsp;дней и отправляет позже.</p>
+        </li>
+        <li>
+          <h3>Облако в Казахстане</h3>
+          <p>Серверы находятся в Казахстане. Здесь хранятся сотрудники, проходы, машины, тревоги и табель всех ваших объектов.</p>
+        </li>
+        <li>
+          <h3>Вы</h3>
+          <p>Смотрите всё на сайте с компьютера или телефона. Тревоги получаете в Telegram, бухгалтер скачивает табель в Excel.</p>
+        </li>
+      </ol>
+      <p class="how__back"><svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg>Обратный путь: вы добавили сотрудника с фото, и платформа сама отправляет его на все терминалы. Нажали «Открыть дверь», и на демо-стенде команда доходит до терминала примерно за секунду.</p>
+    </div>
+  </section>
+
+  <!-- 3. Проход по лицу и номерам машин -->
+  <section class="section access" id="access" aria-labelledby="access-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Проход</p>
+        <h2 id="access-title">Проход по лицу и номерам машин</h2>
+      </div>
+
+      <div class="access__grid">
+        <article class="access__col">
+          <div class="terminal" aria-hidden="true">
+            <div class="terminal__screen">
+              <span class="terminal__frame"></span>
+              <svg class="terminal__face" viewBox="0 0 80 80"><circle cx="40" cy="31" r="14"/><path d="M14 74c3-15 13-23 26-23s23 8 26 23"/></svg>
+              <span class="terminal__ok"><svg class="i"><use href="#i-check"/></svg>Айгерим С.</span>
+            </div>
+            <span class="terminal__model">DS-K1T343MX</span>
+          </div>
+          <h3>Сотрудники по лицу</h3>
+          <p>Сотрудник смотрит в терминал, и турникет или дверь открывается. Карты и пароли не нужны.</p>
+          <ul class="ticks">
+            <li>Сотрудников и фото добавляете на платформе. Она сама загружает их на все терминалы.</li>
+            <li>Можно загрузить список сотрудников из Excel.</li>
+            <li>Чужое лицо получает отказ, охрана получает тревогу.</li>
+            <li>Hikvision и ZKTeco работают на одной ферме вместе.</li>
+          </ul>
+        </article>
+
+        <article class="access__col">
+          <ul class="plates" aria-label="Примеры решений на въезде">
+            <li><span class="plate"><span class="plate__kz">KZ</span><span class="plate__num">512 AMK</span><span class="plate__reg">15</span></span><span class="plates__what">молоковоз</span><span class="pill pill--ok">Въезд</span></li>
+            <li><span class="plate"><span class="plate__kz">KZ</span><span class="plate__num">1234 AT</span><span class="plate__reg">15</span></span><span class="plates__what">трактор Беларус</span><span class="pill pill--ok">Въезд</span></li>
+            <li><span class="plate"><span class="plate__kz">KZ</span><span class="plate__num">401 NAN</span><span class="plate__reg">15</span></span><span class="plates__what">чужая машина · шлагбаум закрыт</span><span class="pill pill--warn">Нет в списке</span></li>
+            <li><span class="plate"><span class="plate__kz">KZ</span><span class="plate__num">088 KTA</span><span class="plate__reg">02</span></span><span class="plates__what">тревога охране</span><span class="pill pill--bad">Чёрный список</span></li>
+          </ul>
+          <h3>Машины по номерам</h3>
+          <p>Камера Hikvision на въезде читает номер. Если он в белом списке, шлагбаум открывается сам.</p>
+          <ul class="ticks">
+            <li>Белый и чёрный списки. Добавить машину может и охранник.</li>
+            <li>Номера в формате Казахстана, в том числе вида 1234&nbsp;AT&nbsp;15.</li>
+            <li>Журнал въездов и выездов: номер, время, решение.</li>
+          </ul>
+        </article>
+      </div>
+
+      <div class="remote">
+        <div class="remote__copy">
+          <h3>Открыть дверь с телефона</h3>
+          <p>Приехал ветеринар, а пропуска у него нет. Нажимаете «Открыть дверь» в приложении, и терминал открывает замок. В журнале остаётся, кто и когда открыл.</p>
+        </div>
+        <div class="remote__demo" role="group" aria-label="Пример команды">
+          <div class="remote__card">
+            <span class="remote__eyebrow">Склад кормов · DS-K1T320MFWX</span>
+            <span class="remote__state"><span class="dot dot--ok" aria-hidden="true"></span>На связи</span>
+            <button class="btn btn--primary" type="button" id="remote-open"><svg class="i" aria-hidden="true"><use href="#i-door"/></svg>Открыть дверь</button>
+            <p class="remote__status" id="remote-status" role="status" aria-live="polite">Пример. Нажмите кнопку.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Тревоги -->
+  <section class="section alarms" id="alarms" aria-labelledby="alarms-title">
+    <div class="wrap alarms__grid">
+      <div class="alarms__copy">
+        <p class="eyebrow">Тревоги</p>
+        <h2 id="alarms-title">Тревоги, которые нельзя пропустить</h2>
+        <p class="section-lede">Устройства сами сообщают о проблеме. Тревога висит открытой, пока кто-то не разберётся и не напишет, что случилось.</p>
+        <div class="alarm-groups">
+          <div class="alarm-group">
+            <h3><svg class="i" aria-hidden="true"><use href="#i-door"/></svg>Двери и терминалы</h3>
+            <ul>
+              <li>Взлом двери</li>
+              <li>Дверь не закрыта</li>
+              <li>Вскрытие корпуса терминала</li>
+              <li>Проход под принуждением</li>
+              <li>Тревожная кнопка или датчик на терминале</li>
+              <li>Неизвестное лицо</li>
+            </ul>
+          </div>
+          <div class="alarm-group">
+            <h3><svg class="i" aria-hidden="true"><use href="#i-camera"/></svg>Камеры и периметр</h3>
+            <ul>
+              <li>Пересечение линии на заборе</li>
+              <li>Вторжение в зону</li>
+              <li>Камеру закрыли или сбили</li>
+            </ul>
+          </div>
+          <div class="alarm-group">
+            <h3><svg class="i" aria-hidden="true"><use href="#i-gate"/></svg>Въезд и связь</h3>
+            <ul>
+              <li>Номер из чёрного списка</li>
+              <li>Процессор не на связи</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="alarms__side">
+        <form class="resolve" id="resolve-demo" novalidate aria-labelledby="resolve-title">
+          <div class="resolve__head">
+            <span class="pill pill--bad" id="resolve-pill">Открыта</span>
+            <time>03:12</time>
+          </div>
+          <h3 id="resolve-title">Пересечение линии</h3>
+          <p class="resolve__where">Периметр, северная сторона · камера DS-2CD1043G2-LIU</p>
+          <label for="resolve-comment">Комментарий</label>
+          <textarea id="resolve-comment" rows="2" placeholder="Например: лиса у забора, проверил охранник Ерлан" aria-describedby="resolve-msg"></textarea>
+          <p class="resolve__msg" id="resolve-msg">Без комментария тревогу закрыть нельзя.</p>
+          <button class="btn btn--dark" type="submit">Решено</button>
+        </form>
+        <div class="tg-card">
+          <span class="tg-card__head"><svg class="i" aria-hidden="true"><use href="#i-send"/></svg>Сообщение в Telegram</span>
+          <pre class="tg-card__msg">Тревога: Взлом двери
+Где: Склад кормов
+Объект: Ферма «Север»
+Время: 11:33</pre>
+          <p>Сообщения идут через серверы Telegram за пределами Казахстана. Поэтому по умолчанию в них только тип тревоги, место, объект и время, без имён и фото. Подробности владелец включает сам.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. Табель -->
+  <section class="section ts" id="timesheet" aria-labelledby="ts-title">
+    <div class="wrap">
+      <div class="section-head ts__head">
+        <div>
+          <p class="eyebrow">Табель</p>
+          <h2 id="ts-title">Табель в Excel по правилам РК</h2>
+          <p class="section-lede">Табель собирается сам из проходов и графиков. Бухгалтер скачивает его в Excel одной кнопкой.</p>
+        </div>
+        <p class="ts__norm"><b>Сентябрь 2026</b><span>норма 176&nbsp;ч · 22 рабочих дня</span></p>
+      </div>
+
+      <p class="ts__swipe" aria-hidden="true">Листайте вправо →</p>
+      <div class="ts__sheet-wrap">
+      <div class="ts__sheet" tabindex="0" role="region" aria-label="Пример табеля за сентябрь 2026, прокручивается вбок">
+        <table class="sheet" id="ts-table">
+          <caption class="sr-only">Пример табеля за сентябрь 2026 года: коды дней, часы и ночные часы по сотрудникам</caption>
+        </table>
+      </div>
+      </div>
+      <p class="ts__legend" id="ts-legend"></p>
+
+      <div class="ts__rules">
+        <div class="ts__rule">
+          <h3>Графики</h3>
+          <p>Пятидневка 5/2, шестидневка 6/1, 2/2, сутки через трое и вахта.</p>
+        </div>
+        <div class="ts__rule">
+          <h3>Календарь РК на 2026 год</h3>
+          <p>Праздники и переносы учтены. День Конституции перенесён на 15&nbsp;марта. Норма года при пятидневке — 1976&nbsp;часов.</p>
+        </div>
+        <div class="ts__rule">
+          <h3>Ночные часы</h3>
+          <p>С 22:00 до 06:00, по статье 76 Трудового кодекса РК. Смена через полночь делится по дням: до 24:00 в день начала, после в следующий.</p>
+        </div>
+        <div class="ts__rule">
+          <h3>Excel сейчас, 1С потом</h3>
+          <p>Excel работает уже сейчас. Загрузки в 1С пока нет, она в планах.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. Зима и связь -->
+  <section class="section winter" id="winter" aria-labelledby="winter-title">
+    <div class="winter__snow" aria-hidden="true"></div>
+    <div class="wrap winter__grid">
+      <div class="winter__temp-wrap">
+        <div class="winter__temp" aria-hidden="true">−40<span>°C</span></div>
+        <p class="winter__temp-note">Так бывает зимой на севере Казахстана</p>
+      </div>
+      <div class="winter__copy">
+        <p class="eyebrow eyebrow--ice">Зима и связь</p>
+        <h2 id="winter-title">Готовим оборудование к морозу и обрывам связи</h2>
+        <ul class="winter__points">
+          <li><svg class="i" aria-hidden="true"><use href="#i-snow"/></svg><span><b>Оборудование под мороз.</b> Подбираем модели с обогревом, термокожухи и ИБП. Терминалы ставим так, чтобы им было тепло.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-offline"/></svg><span><b>Пропал интернет.</b> Двери и шлагбаум работают дальше: сотрудники и номера уже лежат на устройствах. Процессор хранит события до 30&nbsp;дней и отправит их, когда связь вернётся.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-battery"/></svg><span><b>Пропал свет.</b> ИБП держит процессор и сеть, пока хватает батареи. Запас подбираем под ваш объект. Замок при отключении ведёт себя так, как его настроили: открывается или остаётся закрытым.</span></li>
+        </ul>
+      </div>
+      <figure class="outage">
+        <figcaption>Пример ночи без интернета</figcaption>
+        <ol class="outage__line">
+          <li class="is-bad"><time>02:10</time><span>Интернет пропал</span></li>
+          <li class="is-keep"><time>02:10–06:40</time><span>Проходы и тревоги копятся на процессоре, двери работают</span></li>
+          <li class="is-ok"><time>06:40</time><span>Связь вернулась. Все события ушли в облако по порядку, табель посчитан верно</span></li>
+        </ol>
+      </figure>
+    </div>
+  </section>
+
+  <!-- 7. Оборудование -->
+  <section class="section hw" id="hardware" aria-labelledby="hw-title">
+    <div class="wrap">
+      <div class="section-head hw__head">
+        <div>
+          <p class="eyebrow">Оборудование</p>
+          <h2 id="hw-title">Недорогое оборудование, главное в программе</h2>
+        </div>
+        <p class="section-lede">Берём то, что легко купить в Казахстане. Основа — Hikvision. ZKTeco по желанию, оба бренда работают на одной ферме. Уже стоят камеры Hikvision? Напишите модели в <a href="#pilot">заявке на пилот</a>, проверим, какие подойдут.</p>
+      </div>
+      <div class="hw__table-wrap" tabindex="0" role="region" aria-label="Таблица оборудования">
+        <table class="hw__table">
+          <thead>
+            <tr><th scope="col">Модель</th><th scope="col">Где ставим</th><th scope="col">Что делает</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row"><span class="hw__item"><svg class="hw__ill" viewBox="0 0 72 72" aria-hidden="true"><use href="#ill-term"/></svg><span><span class="hw__brand">Hikvision</span><span class="mono">DS-K1T343MX</span></span></span></th><td>Проходная, вход и выход</td><td>Узнаёт лицо, читает карту, открывает турникет или замок</td></tr>
+            <tr><th scope="row"><span class="hw__item"><svg class="hw__ill" viewBox="0 0 72 72" aria-hidden="true"><use href="#ill-term"/></svg><span><span class="hw__brand">Hikvision</span><span class="mono">DS-K1T321MWX</span></span></span></th><td>Внутренние двери</td><td>Лицо и карта, подключение по Wi-Fi там, где нет кабеля</td></tr>
+            <tr><th scope="row"><span class="hw__item"><svg class="hw__ill" viewBox="0 0 72 72" aria-hidden="true"><use href="#ill-term-fp"/></svg><span><span class="hw__brand">Hikvision</span><span class="mono">DS-K1T320MFWX</span></span></span></th><td>Склад кормов, двери с датчиком</td><td>Лицо, отпечаток и карта. С датчиком двери сообщает о взломе и о незакрытой двери</td></tr>
+            <tr><th scope="row"><span class="hw__item"><svg class="hw__ill" viewBox="0 0 72 72" aria-hidden="true"><use href="#ill-anpr"/></svg><span><span class="hw__brand">Hikvision</span><span class="mono">DS-TCG406-E</span></span></span></th><td>Въезд для машин</td><td>Распознаёт номер и открывает шлагбаум по белому списку</td></tr>
+            <tr><th scope="row"><span class="hw__item"><svg class="hw__ill" viewBox="0 0 72 72" aria-hidden="true"><use href="#ill-cam"/></svg><span><span class="hw__brand">Hikvision</span><span class="mono">DS-2CD1043G2-LIU</span></span></span></th><td>Забор и двор</td><td>Линия и зона на заборе: пересечение, вторжение, камеру закрыли</td></tr>
+            <tr class="is-optional"><th scope="row"><span class="hw__item"><svg class="hw__ill" viewBox="0 0 72 72" aria-hidden="true"><use href="#ill-zk"/></svg><span><span class="hw__brand">ZKTeco · по желанию</span><span class="mono">MB10-VL</span></span></span></th><td>Контора</td><td>Лицо и отпечаток. Работает с облаком напрямую, без процессора</td></tr>
+            <tr class="is-core"><th scope="row"><span class="hw__item"><svg class="hw__ill" viewBox="0 0 72 72" aria-hidden="true"><use href="#ill-proc"/></svg><span><span class="hw__brand">QazTracker</span><span class="mono">Процессор</span></span></span></th><td>Шкаф на проходной</td><td>Мини-компьютер: связь устройств с облаком, команды на терминалы, хранение событий без интернета</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="hw__cta">
+        <p><b>Стоимость считаем под ваш объект</b><span>Сколько дверей, въездов и камер. Начать можно с пилота на одной точке.</span></p>
+        <a class="btn btn--primary" href="#pilot">Запросить пилот</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8. Данные и закон -->
+  <section class="section data" id="data" aria-labelledby="data-title">
+    <div class="wrap data__grid">
+      <div class="data__copy">
+        <p class="eyebrow">Данные и закон</p>
+        <h2 id="data-title">Данные хранятся в Казахстане</h2>
+        <ul class="data__points">
+          <li><h3>Серверы в Казахстане</h3><p>Закон РК о персональных данных требует хранить их в стране. Платформа так устроена с самого начала.</p></li>
+          <li><h3>Согласие на биометрию</h3><p>Фото лица — это биометрия. Загружайте фото сотрудника только с его письменного согласия.</p></li>
+          <li><h3>Telegram без лишнего</h3><p>В уведомлении тип тревоги, место и время. Имён и фото нет, пока владелец сам их не включит.</p></li>
+          <li><h3>У каждого свои права</h3><p>Охрана видит журнал и открывает двери, но не меняет сотрудников и не видит табель.</p></li>
+        </ul>
+      </div>
+      <div class="roles-wrap" tabindex="0" role="region" aria-label="Права ролей">
+        <table class="roles">
+          <caption>Кто что может</caption>
+          <thead><tr><th scope="col"><span class="sr-only">Действие</span></th><th scope="col">Владелец</th><th scope="col">Админи&shy;стратор</th><th scope="col">Охрана</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Журнал проходов, машин и тревог</th><td><span class="yes">да</span></td><td><span class="yes">да</span></td><td><span class="yes">да</span></td></tr>
+            <tr><th scope="row">Закрыть тревогу с комментарием</th><td><span class="yes">да</span></td><td><span class="yes">да</span></td><td><span class="yes">да</span></td></tr>
+            <tr><th scope="row">Открыть дверь из приложения</th><td><span class="yes">да</span></td><td><span class="yes">да</span></td><td><span class="yes">да</span></td></tr>
+            <tr><th scope="row">Добавить машину в список</th><td><span class="yes">да</span></td><td><span class="yes">да</span></td><td><span class="yes">да</span></td></tr>
+            <tr><th scope="row">Сотрудники и фото</th><td><span class="yes">да</span></td><td><span class="yes">да</span></td><td><span class="no">нет</span></td></tr>
+            <tr><th scope="row">Табель и Excel</th><td><span class="yes">да</span></td><td><span class="yes">да</span></td><td><span class="no">нет</span></td></tr>
+            <tr><th scope="row">Пользователи и роли</th><td><span class="yes">да</span></td><td><span class="yes">да</span></td><td><span class="no">нет</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9. Вопросы -->
+  <section class="section faq" id="faq" aria-labelledby="faq-title">
+    <div class="wrap faq__grid">
+      <div>
+        <p class="eyebrow">Вопросы</p>
+        <h2 id="faq-title">Частые вопросы</h2>
+      </div>
+      <div class="faq__list">
+        <details>
+          <summary>Нужен ли интернет?</summary>
+          <p>Нужен, чтобы видеть события на сайте и получать тревоги. Подойдёт обычный проводной или мобильный интернет. Если связь пропала, двери и шлагбаум работают дальше, а процессор хранит события до 30&nbsp;дней и отправляет их, когда связь вернётся.</p>
+        </details>
+        <details>
+          <summary>Подойдут ли наши камеры Hikvision?</summary>
+          <p>Напишите модели в <a href="#pilot">заявке на пилот</a> — проверим, какие подойдут. Для номеров машин нужна камера, которая сама распознаёт номера. Для забора нужна камера с функцией пересечения линии.</p>
+        </details>
+        <details>
+          <summary>Сколько стоит?</summary>
+          <p>Стоимость считаем под ваш объект: сколько дверей, въездов, камер и сотрудников. Начать можно с пилота на одной точке, например на проходной.</p>
+        </details>
+        <details>
+          <summary>Кто устанавливает?</summary>
+          <p>Обсуждаем на пилоте. Мы подбираем оборудование и настраиваем платформу, а кто будет монтировать на месте, решаем вместе под ваш регион.</p>
+        </details>
+        <details>
+          <summary>Можно ли выгрузить табель в 1С?</summary>
+          <p>Пока нет. Табель скачивается в Excel одной кнопкой, бухгалтер работает с ним как обычно. Загрузку в 1С планируем.</p>
+        </details>
+        <details>
+          <summary>Платформа уже работает?</summary>
+          <p>Платформа работает на стенде, где вместо настоящих терминалов и камер — их имитаторы. Запуск на настоящем оборудовании только начинается. Поэтому предлагаем пилот на одной точке: вы увидите работу на своих людях, прежде чем ставить всё.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10. Заявка на пилот -->
+  <section class="section pilot" id="pilot" aria-labelledby="pilot-title">
+    <div class="wrap pilot__grid">
+      <div class="pilot__copy">
+        <p class="eyebrow eyebrow--ice">Пилот</p>
+        <h2 id="pilot-title">Пилот на одной точке</h2>
+        <p class="section-lede">Начните с одной проходной, въезда или склада. Посмотрите, как это работает у вас, и решите, что дальше.</p>
+        <ol class="pilot__steps">
+          <li><b>Созваниваемся.</b> Узнаём, что важнее: проход, машины, тревоги или табель.</li>
+          <li><b>Подбираем оборудование</b> под ваш объект и вашу зиму.</li>
+          <li><b>Ставим одну точку</b> и подключаем её к платформе.</li>
+          <li><b>Вы смотрите</b> журнал, тревоги и табель на своих людях и решаете, что дальше.</li>
+        </ol>
+        <div class="pilot__contacts" data-contact-block hidden></div>
+      </div>
+
+      <div class="pilot__form-wrap">
+        <form class="lead" id="lead-form" novalidate aria-labelledby="lead-title">
+          <h3 id="lead-title">Заявка на пилот</h3>
+          <div class="field">
+            <label for="f-name">Имя</label>
+            <input id="f-name" name="name" type="text" autocomplete="name" required maxlength="80" aria-describedby="e-name">
+            <p class="field__err" id="e-name"></p>
+          </div>
+          <div class="field">
+            <label for="f-phone">Телефон</label>
+            <input id="f-phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="+7 700 000 00 00" required maxlength="20" aria-describedby="e-phone">
+            <p class="field__err" id="e-phone"></p>
+          </div>
+          <div class="field">
+            <label for="f-org">Хозяйство или предприятие <span class="opt">необязательно</span></label>
+            <input id="f-org" name="org" type="text" autocomplete="organization" maxlength="120" placeholder="Например: ТОО «Агро Север», молочная ферма" aria-describedby="e-org">
+            <p class="field__err" id="e-org"></p>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="f-region">Регион <span class="opt">необязательно</span></label>
+              <select id="f-region" name="region" aria-describedby="e-region">
+                <option value="">Выберите регион</option>
+              </select>
+              <p class="field__err" id="e-region"></p>
+            </div>
+            <div class="field">
+              <label for="f-staff">Сколько сотрудников <span class="opt">необязательно</span></label>
+              <select id="f-staff" name="staff" aria-describedby="e-staff">
+                <option value="">Выберите</option>
+                <option>до 10</option>
+                <option>11–30</option>
+                <option>31–100</option>
+                <option>101–300</option>
+                <option>больше 300</option>
+              </select>
+              <p class="field__err" id="e-staff"></p>
+            </div>
+          </div>
+          <fieldset class="field">
+            <legend>Что важнее <span class="opt">необязательно</span></legend>
+            <div class="chips">
+              <label class="chip"><input type="checkbox" name="focus" value="проход по лицу" id="f-focus-1"><span>Проход</span></label>
+              <label class="chip"><input type="checkbox" name="focus" value="машины по номерам" id="f-focus-2"><span>Машины</span></label>
+              <label class="chip"><input type="checkbox" name="focus" value="тревоги" id="f-focus-3"><span>Тревоги</span></label>
+              <label class="chip"><input type="checkbox" name="focus" value="табель" id="f-focus-4"><span>Табель</span></label>
+            </div>
+          </fieldset>
+          <div class="field">
+            <label for="f-note">Комментарий <span class="opt">необязательно</span></label>
+            <textarea id="f-note" name="note" rows="2" maxlength="500" placeholder="Например: уже стоят камеры Hikvision, нужна одна проходная"></textarea>
+          </div>
+          <button class="btn btn--primary btn--wide" type="submit">Подготовить заявку</button>
+          <p class="lead__note">Обязательны только имя и телефон. Заявка не уходит сама: на следующем шаге вы отправите её удобным способом.</p>
+        </form>
+
+        <div class="lead-result" id="lead-result" role="region" hidden tabindex="-1" aria-labelledby="lead-result-title">
+          <h3 id="lead-result-title">Заявка готова</h3>
+          <p id="lead-result-text"></p>
+          <label class="sr-only" for="lead-text">Текст заявки</label>
+          <textarea id="lead-text" readonly rows="8"></textarea>
+          <div class="lead-result__actions" id="lead-actions"></div>
+          <p class="lead-result__status" id="lead-status" role="status" aria-live="polite"></p>
+          <button class="link-btn" type="button" id="lead-edit">Изменить заявку</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap site-footer__grid">
+    <div>
+      <a class="brand brand--footer" href="#top">
+        <span class="brand__mark" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="15" cy="15" r="7.5"/><path d="M19 19l6 6"/></svg></span>
+        <span class="brand__name">QazTracker <b>Vision</b></span>
+      </a>
+      <p>Облачная СКУД для ферм и предприятий Казахстана. Данные хранятся на серверах в Казахстане.</p>
+    </div>
+    <nav aria-label="Разделы в подвале" class="site-footer__nav">
+      <a href="#how">Как работает</a>
+      <a href="#access">Проход и машины</a>
+      <a href="#alarms">Тревоги</a>
+      <a href="#timesheet">Табель</a>
+      <a href="#hardware">Оборудование</a>
+      <a href="#pilot">Заявка на пилот</a>
+    </nav>
+    <div class="site-footer__contact" data-contact-footer hidden></div>
+  </div>
+  <div class="wrap site-footer__bottom">
+    <span>© 2026 QazTracker Vision</span>
+    <span>Демо на этой странице работает на выдуманных данных.</span>
+  </div>
+</footer>
+</body>
+</html>
