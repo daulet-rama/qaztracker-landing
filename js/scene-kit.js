@@ -136,18 +136,39 @@ function paint(g, color) {
 
 // Kit: add primitives with a transform stack, then build() → one mesh per material.
 // Coordinates: y in options is the BOTTOM of the primitive unless { center: true }.
+// tag(name) … tag(null): primitives added in between are also copied (position + normal only) into a per-name
+// geometry, so the scene can draw a hover glow over exactly that object. The built meshes do not change.
 export class Kit {
-  constructor() { this.buckets = new Map(); this.stack = [new THREE.Matrix4()]; }
+  constructor() { this.buckets = new Map(); this.stack = [new THREE.Matrix4()]; this.tagName = null; this.tags = new Map(); }
   get top() { return this.stack[this.stack.length - 1]; }
   push(o = {}) { this.stack.push(this.top.clone().multiply(localMatrix(o))); return this; }
   pop() { if (this.stack.length > 1) this.stack.pop(); return this; }
+  tag(name) { this.tagName = name || null; return this; }
   add(geo, color, o = {}) {
     const g = paint(prepGeometry(geo), color);
     g.applyMatrix4(this.top.clone().multiply(localMatrix(o)));
     const key = o.mat || 'matte';
     if (!this.buckets.has(key)) this.buckets.set(key, []);
     this.buckets.get(key).push(g);
+    if (this.tagName) {
+      const c = new THREE.BufferGeometry();
+      c.setAttribute('position', g.attributes.position.clone());
+      c.setAttribute('normal', g.attributes.normal.clone());
+      if (!this.tags.has(this.tagName)) this.tags.set(this.tagName, []);
+      this.tags.get(this.tagName).push(c);
+    }
     return this;
+  }
+  // merged copies of everything added under each tag: { name: BufferGeometry }
+  tagGeometries() {
+    const out = {};
+    for (const [name, list] of this.tags) {
+      if (!list.length) continue;
+      out[name] = mergeGeometries(list, false);
+      list.forEach((g) => g.dispose());
+    }
+    this.tags.clear();
+    return out;
   }
   rbox(w, h, d, color, o = {}) {
     const r = o.r ?? Math.min(w, h, d) * 0.18;
@@ -302,6 +323,58 @@ export function glowRectTexture() {
   const t = new THREE.CanvasTexture(c);
   t.needsUpdate = true;
   return t;
+}
+
+// Night: soft round pool of light on the ground (white, alpha in the colour; used with additive blending).
+export function poolTexture(size = 128) {
+  const { c, ctx } = canvas(size, size);
+  const r = size / 2;
+  const g = ctx.createRadialGradient(r, r, 0, r, r, r);
+  g.addColorStop(0, 'rgba(255,255,255,0.95)');
+  g.addColorStop(0.18, 'rgba(255,255,255,0.78)');
+  g.addColorStop(0.45, 'rgba(255,255,255,0.36)');
+  g.addColorStop(0.75, 'rgba(255,255,255,0.1)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const t = new THREE.CanvasTexture(c);
+  t.needsUpdate = true;
+  return t;
+}
+
+// Night: headlight beam on the road — bright near the lamps (u = 0), widening and fading forward (u = 1).
+export function beamTexture() {
+  const W = 128, H = 64, { c, ctx } = canvas(W, H);
+  const img = ctx.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const u = x / (W - 1), v = (y / (H - 1)) * 2 - 1;
+      const half = 0.22 + 0.78 * u;                        // the beam widens with distance
+      const side = clamp(1 - Math.abs(v) / half, 0, 1);
+      const a = Math.pow(side, 0.8) * Math.pow(1 - u, 1.35) * smooth(u * 9);
+      const i = (y * W + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+      img.data[i + 3] = Math.round(255 * clamp(a, 0, 1));
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.needsUpdate = true;
+  return t;
+}
+
+// Hover glow: drawn over an object's own geometry (additive, rim-weighted), so the object's materials never change.
+export function glowOverlayMaterial(color = '#5CF0A8') {
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, toneMapped: false, fog: false,
+    blending: THREE.AdditiveBlending, side: THREE.FrontSide,
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,
+    uniforms: { uColor: { value: new THREE.Color(color) }, uAlpha: { value: 0 } },
+    vertexShader: `varying vec3 vN; varying vec3 vV;
+      void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform vec3 uColor; uniform float uAlpha; varying vec3 vN; varying vec3 vV;
+      void main(){ float f = 1.0 - abs(dot(normalize(vN), normalize(vV))); float a = uAlpha * (0.07 + 0.93 * pow(f, 2.8)); gl_FragColor = vec4(uColor, a); }`,
+  });
 }
 
 // ---- icons for map pins (drawn in a 48×48 box centred at 0,0, white strokes)

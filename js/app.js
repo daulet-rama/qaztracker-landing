@@ -10,6 +10,16 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const phoneMQ = matchMedia("(max-width: 760px)");
+/* подсказки у курсора и подсказка про колесо — только там, где есть мышь */
+const hoverMQ = matchMedia("(hover: hover) and (pointer: fine)");
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* Выбор посетителя (панели скрыты, ночь, подсказка уже показана) живёт только в его браузере.
+   localStorage может быть недоступен (приватное окно, запрет cookie): тогда просто не запоминаем. */
+const store = {
+  get(k) { try { return localStorage.getItem("qaztracker-landing:" + k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem("qaztracker-landing:" + k, String(v)); } catch { /* не запомним */ } },
+};
 
 /* ---------- форматирование ---------- */
 function makeFmt(o) {
@@ -91,7 +101,7 @@ function personInfo(name) {
   return { role: SITE.roles[h % SITE.roles.length], schedule: SITE.schedules[h % SITE.schedules.length], tab: 100 + (h % 40) };
 }
 function tabelFor(schedule) {
-  if (/Сутки/i.test(schedule)) return "Я · 24 ч (16 + 8)";
+  if (/Сутки/i.test(schedule)) return "Я · 16 ч (ещё 8 ч завтра)";
   if (/20:00/.test(schedule)) return "Я · 11 ч, ночных 8";
   if (/05:00–17:00|Вахта/.test(schedule)) return "Я · 11 ч";
   if (/08:00–16:00/.test(schedule)) return "Я · 7 ч";
@@ -123,6 +133,10 @@ const state = {
   detailDirty: false,
   feedDirty: false,
   pointerDown: false,
+  bare: store.get("panels") === "hidden",
+  night: store.get("night") === "1",
+  wheel: false,
+  tabTouched: 0,
 };
 function makeSite(id) {
   const k = SITE.sites[id].kpi;
@@ -272,6 +286,8 @@ async function switchSite(id) {
   state.selected = null;
   hud.classList.remove("has-selection");
   stopTour();
+  cancelScenario();
+  hideTip();
   clearTimeout(toastTimer);
   $("#hud-toast").classList.remove("is-on");
   openSiteList(false);
@@ -370,7 +386,7 @@ function renderFeed(force) {
   $("#tab-alarms").classList.toggle("has-open", s.alarms.some((a) => !a.resolved));
   newRows.clear();
   const last = [s.passes[0], s.vehicles[0], s.alarms[0]].filter(Boolean).sort((a, b) => b.time - a.time)[0];
-  if (last) $("#feed-last").textContent = `${hm(last.time)} · ${last.type === "face" ? `${last.person}: ${resultWord(last)}` : last.type === "plate" ? `${last.plate}: ${platePill(last)[1].toLowerCase()}` : ALARM_LABEL[last.kind]}`;
+  if (last) $("#feed-last").textContent = `${hm(last.time)} · ${last.type === "face" ? (last.result === "remote" ? `${last.point}, команда из приложения` : `${last.person}: ${resultWord(last)}`) : last.type === "plate" ? `${last.plate}: ${platePill(last)[1].toLowerCase()}` : ALARM_LABEL[last.kind]}`;
   updateScrollHints();
 }
 function setTab(tab, focus) {
@@ -385,10 +401,21 @@ function setTab(tab, focus) {
   updateScrollHints();
 }
 
-/* ---------- путь сотрудника ---------- */
+/* ---------- путь сотрудника ----------
+ * Обычно — последний проход по лицу. Если выбран человек, путь показывает его: последний его проход
+ * или, если сегодня проходов ещё не было, его смену. */
+function selectedPerson() {
+  if (!state.selected) return null;
+  const o = objInfo(state.selected);
+  if (o.kind !== "person" || !o.name || o.name === state.selected || state.selected === "stranger" || o.name === "Неизвестный") return null;
+  return o.name;
+}
 function renderTimeline() {
   const el = $("#hud-timeline");
-  const f = cur().lastFace;
+  const who = selectedPerson();
+  const mine = who && cur().passes.find((r) => r.type === "face" && r.person === who && r.result !== "remote");
+  if (who && !mine) { el.innerHTML = idleTimeline(who); return; }
+  const f = mine || cur().lastFace;
   if (!f) { el.innerHTML = ""; return; }
   const t = f.time;
   const before = new Date(t.getTime() - 14000);
@@ -420,11 +447,42 @@ function renderTimeline() {
     </div>`;
 }
 
+function shiftTimes(schedule) {
+  const m = /(\d{2}:\d{2})\s*[–-]\s*(\d{2}:\d{2})/.exec(schedule || "");
+  return m ? { from: m[1], to: m[2], overnight: m[2] <= m[1] } : null;
+}
+function shiftText(schedule) {
+  const t = shiftTimes(schedule);
+  if (!t) return schedule || "по графику";
+  return t.overnight ? `с ${t.from} сегодня до ${t.to} завтра` : `${t.from}–${t.to}`;
+}
+function idleTimeline(name) {
+  const info = personInfo(name);
+  const step = (cls, ic, title, sub) => `<li class="tl-step ${cls}"><span class="tl-dot">${icon(ic)}</span><b>${title}</b><span>${esc(sub)}</span></li>`;
+  const steps = step("", "user", "Смена", shiftText(info.schedule)) + step("is-idle", "scan", "Face ID", "ждёт прохода") + step("is-idle", "door", "Проход", "сегодня не было") + step("is-idle", "table", "Табель", "по проходной");
+  return `
+    <div class="tl-main">
+      <div class="tl-head"><h2>${icon("scan")}Путь сотрудника</h2><span>${esc(name)} · проходов сегодня нет</span></div>
+      <ol class="tl-steps">${steps}</ol>
+    </div>
+    <div class="tl-person">
+      <span class="tl-avatar" aria-hidden="true">${esc(initials(name))}</span>
+      <b>${esc(name)}</b>
+      <span>${esc(info.role)}</span>
+      <span class="tl-meta"><span class="pill pill--info">${esc(info.schedule)}</span><span class="pill pill--muted">Таб. № ${info.tab}</span></span>
+    </div>`;
+}
+
 /* ---------- карточка справа ---------- */
 function setSelected(id, fromScene) {
+  const changed = (id || null) !== state.selected;
   state.selected = id || null;
   hud.classList.toggle("has-selection", Boolean(state.selected));
+  if (tip.id) renderTip();
   renderDetail(true);
+  // новая карточка открывается с начала, а не с места, где листали прошлую
+  if (changed) $("#hud-detail").scrollTop = 0;
+  renderTimeline();
   // карточка уже на месте: камера считает свободную часть кадра с её учётом
   syncInsets(true);
   if (!fromScene) { try { scene?.select(state.selected); } catch (e) { console.warn(e); } }
@@ -561,34 +619,63 @@ function barnCard() {
     ])
     + `<p class="dt-note">Проходы в молочный блок видны в журнале. Часы в табеле считаются по проходной, внутренние двери на них не влияют.</p>`;
 }
+const capital = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
+/* живые данные сцены о человеке или машине: что делает сейчас, внутри ли забора */
+function liveInfo(id) { try { return has("objectInfo") ? scene.objectInfo(id) : null; } catch { return null; } }
 function vehicleCard(id) {
   const v = veh(id) || { plate: "—", type: "машина", list: "none" };
   const s = cur();
   const rows = s.vehicles.filter((r) => r.plate === v.plate);
   const last = rows[0];
+  const live = liveInfo(id);
+  // внутри или за воротами — по событиям въезда и выезда, как в сводке «сейчас внутри»
+  const inside = s.inside.has(id);
+  const doing = live && typeof live.doing === "string" ? live.doing : "";
   const listTxt = v.list === "white" ? `<span class="pill pill--ok">Белый список</span>` : v.list === "black" ? `<span class="pill pill--bad">Чёрный список</span>` : `<span class="pill pill--warn">Нет в списке</span>`;
-  return head("truck", "Машина", v.type.charAt(0).toUpperCase() + v.type.slice(1), "")
+  const dir = !last ? "—" : last.result !== "allowed" ? "въезд, не пропущен" : last.direction === "out" ? "выезд" : "въезд";
+  return head(id === "unknown-car" ? "car" : "truck", "Машина", capital(v.type), inside ? "на территории" : "за воротами")
     + `<div class="dt-plate-big">${plateHtml(v.plate, "lg")}</div>`
     + kv([
       ["Список", listTxt],
-      ["Последний проезд", last ? `${last.direction === "out" ? "выезд" : "въезд"} · ${hm(last.time)}` : "сегодня не было"],
+      ["Последний проезд", last ? hm(last.time) : "сегодня не было"],
+      ["Направление", dir],
       ["Проездов сегодня", String(rows.length)],
-      ["Сейчас", s.inside.has(id) ? "на территории" : "за воротами"],
+      ["Сейчас", esc(doing || (inside ? "на территории" : "за воротами"))],
     ])
-    + (v.list === "none" ? `<p class="dt-note">Не пропущен — номера нет в списке. Шлагбаум остался закрытым, машина развернулась.</p>` : "");
+    + (v.list === "none" ? `<p class="dt-note">Не пропущен — номера нет в списке. Шлагбаум остался закрытым, машина развернулась. Если машина своя, охранник добавит номер в белый список.</p>` : `<p class="dt-note">Шлагбаум открывается сам, когда камера узнаёт номер из белого списка.</p>`);
 }
 function personCard(id) {
   const o = objInfo(id);
+  if (id === "stranger" || o.name === "Неизвестный") {
+    return head("user", "Посторонний", "Неизвестный человек", "нет в базе сотрудников", "bad")
+      + `<div class="dt-status"><span class="pill pill--bad">Нет в базе</span><span>проход по лицу закрыт</span></div>`
+      + kv([["Терминал", "лицо не узнал"], ["Турникет", "закрыт"], ["Охрана", "тревога в Telegram"]])
+      + `<p class="dt-note">Терминал на проходной не нашёл лицо в базе и не открыл турникет. Охранник получает тревогу и решает, пускать ли человека.</p>`;
+  }
   const name = o.name && o.name !== id ? o.name : "Сотрудник";
   const info = personInfo(name);
-  const last = cur().passes.find((r) => r.person === name);
+  const rows = cur().passes.filter((r) => r.type === "face" && r.person === name);
+  const lastCp = rows.find((r) => r.objectId === "checkpoint" && r.result === "allowed");
+  const live = liveInfo(id);
+  const doing = live && typeof live.doing === "string" ? live.doing : "";
+  const onSite = lastCp ? !/выход/i.test(lastCp.point) : true;
+  const cameIn = [...rows].reverse().find((r) => r.objectId === "checkpoint" && r.result === "allowed" && !/выход/i.test(r.point));
+  const list = rows.slice(0, 4).map((r) => {
+    const [cls, txt] = PILL[r.result] || PILL.allowed;
+    return `<li><span class="dt-row"><time>${hm(r.time)}</time><span class="grow">${esc(r.point)}</span><span class="pill pill--${cls}">${txt}</span></span></li>`;
+  }).join("");
   return head("user", "Сотрудник", name, esc(info.role))
+    // без прохода через проходную сегодня не утверждаем, где человек: показываем только смену
+    + `<div class="dt-status">${lastCp ? `<span class="pill pill--${onSite ? "ok" : "muted"}">${onSite ? `<span class="dot dot--ok"></span>На территории` : "Не на территории"}</span>` : ""}<span>смена ${esc(info.schedule.replace(" · ", " "))}</span></div>`
     + kv([
       ["График", esc(info.schedule)],
       ["Таб. №", String(info.tab)],
-      ["Сегодня", last ? `${esc(last.point)} · ${hm(last.time)}` : "на территории с утра"],
-      ["В табеле", esc(tabelFor(info.schedule))],
-    ]);
+      ...(doing ? [["Сейчас", esc(doing)]] : []),
+      cameIn ? ["Приход", hm(cameIn.time)] : ["Смена", esc(shiftText(info.schedule))],
+      ["В табеле сегодня", esc(tabelFor(info.schedule))],
+    ])
+    + `<div class="dt-section"><div class="dt-section__title">Проходы сегодня<span>по лицу</span></div><ul class="dt-list">${list || `<li><span class="dt-row">Проходов по лицу пока нет</span></li>`}</ul></div>`
+    + `<div class="dt-section"><div class="dt-section__title">Путь до табеля</div><ol class="dt-path"><li>Терминал узнаёт лицо на проходной</li><li>Время прихода и ухода попадает в табель</li><li>За месяц табель выгружается в Excel</li></ol><a class="dt-link" href="#timesheet">Как считается табель${icon("arrow")}</a></div>`;
 }
 function overviewCard() {
   const site = SITE.sites[state.site], s = cur();
@@ -652,26 +739,36 @@ async function openDoor(id) {
   $(`[data-act="open"][data-id="${id}"]`)?.focus();
   try {
     const res = await withTimeout(Promise.resolve(scene.openDoor(id)), 8000);
-    const ms = res && typeof res.ms === "number" ? res.ms : performance.now() - t0;
-    state.cmd[id] = { phase: "ok", ms };
-    state.lastCommand = { what: `Открыть дверь · ${POINT_NAME[id]}`, ms };
-    const s = cur();
-    // дверь открыта; если сцена сама не пришлёт «закрыта», закрываем через 6 с, как терминал по таймеру
-    s.doors[id] = "open";
-    clearTimeout(doorTimers[id]);
-    doorTimers[id] = setTimeout(() => { if (s.doors[id] === "open") { s.doors[id] = "closed"; if (state.selected === id) renderDetail(); } }, 6000);
-    const row = { id: uid(), type: "face", time: new Date(), person: `${SITE.user.name}, из приложения`, point: `${POINT_NAME[id]}: ${DOOR_NOUN[id].toLowerCase()} открыт${DOOR_NOUN[id] === "Дверь" ? "а" : ""}`, objectId: id, result: "remote" };
-    s.passes.unshift(row);
-    newRows.add(row.id);
-    renderFeed();
-    announce(`${POINT_NAME[id]}: дверь открыта за ${sec(ms)} секунды.`, true);
+    doorOpened(id, res && typeof res.ms === "number" ? res.ms : performance.now() - t0);
   } catch {
     state.cmd[id] = { phase: "err" };
+    clearCmdLater(id);
   }
   if (state.selected === id) { renderDetail(true); $(`[data-act="open"][data-id="${id}"]`)?.focus(); }
-  setTimeout(() => {
+}
+function clearCmdLater(id) {
+  clearTimeout(doorTimers["cmd-" + id]);
+  doorTimers["cmd-" + id] = setTimeout(() => {
     if (state.cmd[id] && state.cmd[id].phase !== "sending") { delete state.cmd[id]; if (state.selected === id) renderDetail(); }
   }, 9000);
+}
+/* дверь открыта командой из приложения: статус в карточке, строка в журнале, дверь закроется по таймеру */
+function doorOpened(id, ms) {
+  state.cmd[id] = { phase: "ok", ms };
+  state.lastCommand = { what: `Открыть дверь · ${POINT_NAME[id]}`, ms };
+  const s = cur();
+  // если сцена сама не пришлёт «закрыта», закрываем через 6 с, как терминал по таймеру
+  s.doors[id] = "open";
+  clearTimeout(doorTimers[id]);
+  doorTimers[id] = setTimeout(() => { if (s.doors[id] === "open") { s.doors[id] = "closed"; if (state.selected === id) renderDetail(); if (tip.id === id) renderTip(); } }, 6000);
+  const row = { id: uid(), type: "face", time: new Date(), person: `${SITE.user.name}, из приложения`, point: `${POINT_NAME[id]}: ${DOOR_NOUN[id].toLowerCase()} открыт${DOOR_NOUN[id] === "Дверь" ? "а" : ""}`, objectId: id, result: "remote" };
+  s.passes.unshift(row);
+  newRows.add(row.id);
+  renderFeed();
+  if (state.selected === id) renderDetail(true);
+  if (tip.id === id) renderTip();
+  announce(`${POINT_NAME[id]}: дверь открыта за ${sec(ms)} секунды.`, true);
+  clearCmdLater(id);
 }
 function resolveAlarm(form) {
   const id = form.dataset.alarm;
@@ -719,51 +816,86 @@ function announce(text, force) {
   clearTimeout(annTimer);
   if (wait <= 0) flush(); else annTimer = setTimeout(flush, wait);
 }
+/* «Попробуйте сами» перематывает круг демо на несколько секунд назад, и то же событие приходит ещё раз.
+   Такой повтор (тот же человек или номер, то же место и результат, меньше минуты спустя) не добавляет строку
+   и не увеличивает счётчик проходов и машин: строка поднимается наверх с новым временем и снова подсвечивается.
+   В обычном круге демо одно и то же событие повторяется не чаще раза в 90 с. */
+const REPEAT_MS = 60000;
+function repeatOf(list, time, same) {
+  const i = list.findIndex((r) => same(r) && time - r.time >= 0 && time - r.time < REPEAT_MS);
+  if (i < 0) return null;
+  const [r] = list.splice(i, 1);
+  r.time = time;
+  list.unshift(r);
+  newRows.add(r.id);
+  return r;
+}
 function handleEvent(evt) {
   if (!evt || !evt.type) return;
   const s = cur();
   const time = evt.time instanceof Date && !isNaN(evt.time) ? evt.time : new Date();
   if (evt.type === "face") {
-    const row = { id: uid(), type: "face", time, person: evt.person || "Сотрудник", point: evt.point || POINT_NAME[evt.objectId] || "", objectId: evt.objectId || "checkpoint", result: evt.result === "denied" ? "denied" : "allowed" };
-    s.passes.unshift(row);
-    s.passes.length = Math.min(s.passes.length, 60);
+    const fresh = { id: uid(), type: "face", time, person: evt.person || "Сотрудник", point: evt.point || POINT_NAME[evt.objectId] || "", objectId: evt.objectId || "checkpoint", result: evt.result === "denied" ? "denied" : "allowed" };
+    const again = repeatOf(s.passes, time, (r) => r.type === "face" && r.person === fresh.person && r.point === fresh.point && r.result === fresh.result);
+    const row = again || fresh;
+    if (!again) {
+      s.passes.unshift(row);
+      s.passes.length = Math.min(s.passes.length, 60);
+      newRows.add(row.id);
+    }
     s.lastFace = row;
-    newRows.add(row.id);
     if (row.result === "allowed") {
-      bump("passes", 1);
+      if (!again) bump("passes", 1);
+      // люди на территории считаются и на повторе: сцена при перемотке уже вычла этот проход (onSiteDelta)
       if (row.objectId === "checkpoint") bump("onSite", /выход/i.test(row.point) ? -1 : 1);
     }
     renderTimeline();
     announce(`${hm(time)}. ${row.person}, ${row.point}: ${resultWord(row)}.`);
   } else if (evt.type === "plate") {
     const vehId = evt.vehicleId || vehByPlate(evt.plate);
-    const row = { id: uid(), type: "plate", time, plate: evt.plate || "—", vehicle: evt.vehicle || "машина", objectId: "gate", vehicleId: vehId, result: ["allowed", "not_in_list", "blacklist"].includes(evt.result) ? evt.result : "allowed", direction: evt.direction === "out" ? "out" : "in" };
-    s.vehicles.unshift(row);
-    s.vehicles.length = Math.min(s.vehicles.length, 60);
-    newRows.add(row.id);
+    const fresh = { id: uid(), type: "plate", time, plate: evt.plate || "—", vehicle: evt.vehicle || "машина", objectId: "gate", vehicleId: vehId, result: ["allowed", "not_in_list", "blacklist"].includes(evt.result) ? evt.result : "allowed", direction: evt.direction === "out" ? "out" : "in" };
+    const again = repeatOf(s.vehicles, time, (r) => r.type === "plate" && r.plate === fresh.plate && r.result === fresh.result && r.direction === fresh.direction);
+    const row = again || fresh;
+    if (!again) {
+      s.vehicles.unshift(row);
+      s.vehicles.length = Math.min(s.vehicles.length, 60);
+      newRows.add(row.id);
+    }
     if (row.result === "allowed") {
       // машина, которая уже числится внутри, второй раз не считается
-      if (row.direction === "in") { if (!vehId || !s.inside.has(vehId)) bump("vehicles", 1); if (vehId) s.inside.add(vehId); }
+      if (row.direction === "in") { if (!again && (!vehId || !s.inside.has(vehId))) bump("vehicles", 1); if (vehId) s.inside.add(vehId); }
       else if (vehId) s.inside.delete(vehId);
     }
-    if (row.result === "blacklist") handleEvent({ type: "alarm", time, kind: "blacklist_plate", where: `Въезд · ${row.plate}`, objectId: "gate" });
+    if (row.result === "blacklist" && !again) handleEvent({ type: "alarm", time, kind: "blacklist_plate", where: `Въезд · ${row.plate}`, objectId: "gate" });
     announce(`${hm(time)}. Номер ${row.plate}: ${row.result === "allowed" ? (row.direction === "in" ? "въезд разрешён" : "выезд") : row.result === "not_in_list" ? "не пропущен, номера нет в списке" : "чёрный список"}.`);
   } else if (evt.type === "alarm") {
-    const row = { id: uid(), type: "alarm", time, kind: evt.kind || "intrusion", where: evt.where || "", objectId: evt.objectId || "perimeter", resolved: false, comment: "" };
-    s.alarms.unshift(row);
-    s.alarms.length = Math.min(s.alarms.length, 40);
-    newRows.add(row.id);
-    bump("alarmsOpen", 1);
-    if (!state.offscreen) showToast(row);
+    const kind = evt.kind || "intrusion", where = evt.where || "";
+    // та же тревога ещё открыта (повтор после перемотки): новую не заводим
+    const again = repeatOf(s.alarms, time, (r) => r.type === "alarm" && !r.resolved && r.kind === kind && r.where === where);
+    const row = again || { id: uid(), type: "alarm", time, kind, where, objectId: evt.objectId || "perimeter", resolved: false, comment: "" };
+    if (!again) {
+      s.alarms.unshift(row);
+      s.alarms.length = Math.min(s.alarms.length, 40);
+      newRows.add(row.id);
+      bump("alarmsOpen", 1);
+    }
+    // пока идёт другой сценарий «Попробуйте сами», уведомление не перекрывает его место на сцене: тревога — в журнале;
+    // когда панели скрыты, уведомление показываем только для своего сценария (тревога на периметре)
+    const mine = run.key === "perimeter" && String(row.objectId).startsWith("perimeter");
+    const foreign = run.key && !mine;
+    if (!state.offscreen && !foreign && (!state.bare || mine)) showToast(row);
     announce(`${hm(time)}. Тревога: ${ALARM_LABEL[row.kind] || row.kind}, ${row.where}.`);
-    if (!evt.seed) scheduleAutoResolve(state.site, row);
+    if (!evt.seed && !again) scheduleAutoResolve(state.site, row);
   } else if (evt.type === "door") {
     s.doors[evt.objectId] = evt.state === "open" ? "open" : "closed";
     if (evt.state !== "open") clearTimeout(doorTimers[evt.objectId]);
   }
   renderKpis();
   renderFeed();
-  if (evt.type !== "face" || !state.selected || state.selected === evt.objectId) renderDetail();
+  // карточка выбранного человека обновляется, когда он сам прошёл по лицу
+  const selName = state.selected && evt.type === "face" ? objInfo(state.selected).name : null;
+  if (evt.type !== "face" || !state.selected || state.selected === evt.objectId || (selName && selName === evt.person)) renderDetail();
+  if (tip.id) renderTip();
   tourOn(evt);
 }
 
@@ -807,7 +939,8 @@ function tourHome() {
   }, TOUR.fly * 1000 + TOUR.hold);
 }
 function tourOn(evt) {
-  if (mode !== "3d" || !scene || typeof scene.tourTo !== "function" || reduced || isPaused() || state.selected) return;
+  // пока идёт сценарий «Попробуйте сами», камерой управляет он
+  if (mode !== "3d" || !scene || typeof scene.tourTo !== "function" || reduced || isPaused() || state.selected || run.key) return;
   if (Date.now() - lastInteract < TOUR.idle) return;
   const id = evt.type === "plate" ? "gate" : (evt.type === "face" || evt.type === "alarm") ? evt.objectId : null;
   if (!id) return;
@@ -825,6 +958,7 @@ function isPaused() { return state.userPaused || state.offscreen || state.docHid
 function applyPause() {
   const p = isPaused();
   if (p && tour.active) { stopTour(); try { if (mode === "3d") scene?.resetView({ dur: 0 }); } catch {} }
+  if (state.offscreen || state.docHidden) { setWheel(false); hideTip(); }
   try { scene?.setPaused(p); } catch (e) { console.warn(e); }
   $(".live-pill").classList.toggle("is-paused", p);
   $(".live-pill__label").textContent = p ? "Пауза" : "Демо";
@@ -857,6 +991,9 @@ function sceneHandlers(getSelf) {
   return {
     onSelect: (id) => { if (scene === getSelf()) setSelected(id, true); },
     onEvent: (evt) => { if (scene === getSelf()) handleEvent(evt); },
+    onHover: (id, x, y) => { if (scene === getSelf()) onSceneHover(id, x, y); },
+    onScenario: (e) => { if (scene === getSelf()) onSceneScenario(e); },
+    onWheelLimit: () => { if (scene === getSelf()) setWheel(false); },
   };
 }
 /* Пока грузится 3D, виден постер — снимок той же 3D-фермы. Схема из fallback.js включается,
@@ -866,20 +1003,25 @@ function startFallbackScene() {
   const h = sceneHandlers(() => self);
   posterEl.classList.add("is-svg");
   posterEl.removeAttribute("aria-hidden");
-  self = createFallbackScene(posterEl, { onSelect: h.onSelect, onEvent: h.onEvent, reducedMotion: reduced, simulate: true });
+  self = createFallbackScene(posterEl, { onSelect: h.onSelect, onEvent: h.onEvent, onHover: h.onHover, onScenario: h.onScenario, reducedMotion: reduced, simulate: true });
   poster = self;
   scene = self;
   if (SITE.sites[state.site] && state.site !== "north") self.setSite(state.site);
   if (state.selected) self.select(state.selected);
   buildSearchIndex();
+  syncFeatures();
   applyPause();
 }
 function useFallback(reason) {
   if (mode === "fallback") return;
+  world.classList.remove("wants-night"); // у схемы ночи нет
   if (reason) console.info("QazTracker: 3D недоступна, работает схема.", reason);
   mode = "fallback";
   world.dataset.mode = "fallback";
   posterEl.hidden = false;
+  // невидимый холст не должен ловить фокус с клавиатуры: на схеме фокус получают сами точки
+  canvas.tabIndex = -1;
+  canvas.setAttribute("aria-hidden", "true");
   startFallbackScene();
   const cap = $(".hero__caption");
   if (cap && !cap.dataset.fallback) {
@@ -910,6 +1052,9 @@ async function boot3D() {
     pending = Promise.resolve(mod.createFarmScene(canvas, {
       onSelect: h.onSelect,
       onEvent: h.onEvent,
+      onHover: h.onHover,
+      onScenario: h.onScenario,
+      onWheelLimit: h.onWheelLimit,
       onReady: () => { ready = true; reveal(); },
       quality: pickQuality(),
       reducedMotion: reduced,
@@ -924,6 +1069,11 @@ async function boot3D() {
   // 3D готова: переносим на неё выбор и объект, постер останавливаем
   const prev = poster;
   scene = s3;
+  // ночь включаем до того, как сцену станет видно: без вспышки дневного кадра
+  if (state.night) setNight(true, { save: false, quiet: true });
+  // стрелки, W A S D, Q и E, плюс и минус на холсте ведёт сама сцена; H, N, F — приложение
+  try { if (has("setKeyboardEnabled")) { scene.setKeyboardEnabled(true, canvas); state.sceneKeys = true; } } catch (e) { console.warn(e); }
+  syncFeatures();
   lastInsets = "";
   syncInsets(true);
   watchInsets();
@@ -935,21 +1085,639 @@ async function boot3D() {
   if (ready) reveal(); else setTimeout(reveal, 1500);
 }
 
-/* колесо мыши прокручивает страницу; приближение — с Ctrl */
+/* ---------- подсказка посреди сцены ---------- */
 let hintTimer = 0, hintShown = 0;
-function showHint(text) {
-  if (Date.now() - hintShown < 6000) return;
+function showHint(text, ms = 1800, force = false) {
+  if (!force && Date.now() - hintShown < 6000) return;
   hintShown = Date.now();
   const el = $("#hud-hint");
   el.textContent = text;
   el.hidden = false;
   clearTimeout(hintTimer);
-  hintTimer = setTimeout(() => { el.hidden = true; }, 1800);
+  hintTimer = setTimeout(() => { el.hidden = true; }, ms);
+}
+const has = (fn) => Boolean(scene && typeof scene[fn] === "function");
+
+/* ---------- колесо мыши ----------
+ * Пока посетитель не нажал на сцену, колесо над ней прокручивает страницу (приближение — с Ctrl).
+ * После нажатия на сцену колесо приближает, пока курсор над сценой; ушёл курсор — снова прокрутка. */
+/* Колесо снова листает страницу, если 8 с его не крутили над сценой или камера отъехала до предела
+   (сцена сообщает об этом через onWheelLimit, а сам этот поворот колеса уже прокручивает страницу). */
+const WHEEL_IDLE_MS = 8000;
+let wheelIdleTimer = 0;
+function wheelIdleLater() { clearTimeout(wheelIdleTimer); if (state.wheel) wheelIdleTimer = setTimeout(() => setWheel(false), WHEEL_IDLE_MS); }
+function setWheel(on) {
+  on = Boolean(on) && mode === "3d" && has("enableWheelZoom");
+  if (on) wheelIdleLater();
+  if (on === state.wheel) return;
+  state.wheel = on;
+  world.classList.toggle("is-wheel", on);
+  try { scene?.enableWheelZoom?.(on); } catch (e) { console.warn(e); }
+  if (on) wheelIdleLater(); else clearTimeout(wheelIdleTimer);
 }
 stage.addEventListener("wheel", (e) => {
   if (mode !== "3d") return;
-  if (!(e.ctrlKey || e.metaKey)) { e.stopPropagation(); showHint("Чтобы приблизить, зажмите Ctrl и крутите колесо"); }
+  if (state.wheel) { noteInteraction(); wheelIdleLater(); return; }
+  if (!(e.ctrlKey || e.metaKey)) {
+    e.stopPropagation();
+    showHint(has("enableWheelZoom") ? "Чтобы приближать колесом, нажмите на сцену. Или зажмите Ctrl" : "Чтобы приблизить, зажмите Ctrl и крутите колесо");
+  }
 }, { capture: true, passive: true });
+/* один раз: как управлять камерой (без localStorage — один раз за просмотр страницы) */
+let controlsHintShown = false;
+function showControlsHintOnce() {
+  if (!hoverMQ.matches || controlsHintShown || store.get("hint") === "1") return;
+  controlsHintShown = true;
+  store.set("hint", "1");
+  showHint("Колесо — приблизить, перетаскивание — повернуть, H — скрыть панели", 5200, true);
+}
+function bindSceneInput() {
+  canvas.addEventListener("pointerdown", (e) => {
+    hideTip();
+    if (mode !== "3d" || e.pointerType !== "mouse") return;
+    setWheel(true);
+    if (has("enableWheelZoom")) showControlsHintOnce();
+  });
+  world.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") setWheel(false); });
+  document.addEventListener("pointerdown", (e) => { if (!world.contains(e.target)) setWheel(false); }, true);
+  addEventListener("blur", () => setWheel(false));
+  // двойной щелчок: камера подлетает к объекту или точке под курсором
+  canvas.addEventListener("dblclick", (e) => {
+    if (mode !== "3d" || !has("focusPoint")) return;
+    e.preventDefault();
+    noteInteraction();
+    try { scene.focusPoint(e.clientX, e.clientY); } catch (err) { console.warn(err); }
+  });
+  // рамка вокруг сцены, когда в неё пришли с клавиатуры (Tab)
+  canvas.addEventListener("focus", () => { let fv = false; try { fv = canvas.matches(":focus-visible"); } catch {} world.classList.toggle("is-kbd-focus", fv); });
+  canvas.addEventListener("blur", () => world.classList.remove("is-kbd-focus"));
+  // подсказка у курсора идёт за мышью
+  stage.addEventListener("pointermove", (e) => {
+    if (e.pointerType !== "mouse") return;
+    tip.x = e.clientX; tip.y = e.clientY; tip.known = true;
+    // человек водит мышью по ферме и читает подсказки: автотур не уводит камеру (уже начатый вернётся сам)
+    lastInteract = Date.now();
+    if (tip.id) placeTip();
+  }, { passive: true });
+  stage.addEventListener("pointerleave", () => { tip.known = false; hideTip(); });
+}
+
+/* ---------- подсказка у курсора: что это и в каком оно состоянии ---------- */
+const tip = { id: null, x: 0, y: 0, known: false, html: "", timer: 0 };
+function onSceneHover(id, x, y) {
+  if (!hoverMQ.matches) return;
+  tip.id = id || null;
+  if (!tip.known && typeof x === "number" && typeof y === "number") { tip.x = x; tip.y = y; }
+  renderTip();
+}
+function hideTip() {
+  tip.id = null;
+  const el = $("#hud-tip");
+  if (el && !el.hidden) el.hidden = true;
+}
+function openAlarmOn(id) {
+  const peri = String(id).startsWith("perimeter");
+  return cur().alarms.some((a) => !a.resolved && (a.objectId === id || (peri && String(a.objectId).startsWith("perimeter"))));
+}
+function checkpointPasses() {
+  const s = cur();
+  const inner = s.passes.filter((r) => r.type === "face" && r.result === "allowed" && r.objectId !== "checkpoint" && r.objectId !== "remote").length;
+  return Math.max(0, s.kpi.passes - inner);
+}
+function tipHtml(id) {
+  const s = cur();
+  const o = objInfo(id);
+  // живые данные сцены: что сейчас делает человек или машина, открыта ли дверь на самом деле
+  let live = null;
+  try { live = has("objectInfo") ? scene.objectInfo(id) : null; } catch {}
+  const doing = live && typeof live.doing === "string" ? live.doing : "";
+  const bad = (txt) => `<span class="tip-bad">${esc(txt)}</span>`;
+  const link = openAlarmOn(id) ? bad("тревога") : "на связи";
+  // первая строка — название, вторая — состояние
+  const join = (title, parts) => { const p = parts.filter(Boolean); return `<b>${esc(title)}</b>${p.length ? `<span class="tip-sub">${p.join(" · ")}</span>` : ""}`; };
+  const p = SITE.points[id];
+  // сводка «Проходов сегодня» считает и внутренние двери, здесь — только турникет проходной
+  if (id === "checkpoint") { const n = checkpointPasses(); return join("Проходная", [link, `${n} ${plural(n, ["проход", "прохода", "проходов"])} через турникет`]); }
+  if (id === "gate") { const n = s.kpi.vehicles; return join("Въезд", [link, `${n} ${plural(n, ["машина", "машины", "машин"])} сегодня`]); }
+  if (id === "feed" || id === "office" || id === "barn") {
+    const noun = id === "barn" ? "дверь молочного блока" : "дверь";
+    const open = live && live.door ? live.door === "open" : s.doors[id] === "open";
+    return join(p.title, [link, `${noun} ${open ? "открыта" : "закрыта"}`]);
+  }
+  if (id === "processor") return join("Процессор на проходной", ["на связи", "очередь событий пуста"]);
+  if (p && (o.kind === "perimeter" || id.startsWith("perimeter"))) return join(p.title, [link, `${p.cameras} ${plural(p.cameras, ["камера", "камеры", "камер"])} на заборе`]);
+  const v = veh(id);
+  if (v) {
+    const list = v.list === "white" ? "в белом списке" : v.list === "black" ? bad("в чёрном списке") : bad("нет в списке");
+    const now = doing ? esc(doing) : s.inside.has(id) ? "на территории" : "";
+    return `<b>${esc(capital(v.type))}</b>${plateHtml(v.plate, "sm")}<span class="tip-sub">${list}${now ? " · " + now : ""}</span>`;
+  }
+  if (o.kind === "person" && o.name && o.name !== id) {
+    if (id === "stranger" || o.name === "Неизвестный") return join("Неизвестный", [bad("нет в базе сотрудников"), doing && esc(doing)]);
+    const info = personInfo(o.name);
+    const sch = /^\d/.test(info.schedule) ? `смена ${info.schedule.replace(" · ", " ")}` : info.schedule.charAt(0).toLowerCase() + info.schedule.slice(1).replace(" · ", ", ");
+    return join(o.name, [esc(sch), doing && esc(doing)]);
+  }
+  // облако и всё, чего нет в справочнике: имя и подпись из сцены
+  const name = (live && live.tooltip && live.tooltip.title) || (live && live.name) || o.name || id;
+  const sub = (live && live.tooltip && live.tooltip.text) || (live && live.subtitle) || o.subtitle || "";
+  return join(name, [sub && esc(sub)]);
+}
+function renderTip() {
+  const el = $("#hud-tip");
+  // у выбранного объекта уже есть подпись на сцене и карточка справа
+  if (!tip.id || tip.id === state.selected || state.pointerDown || !hoverMQ.matches) { $("#hud-tip").hidden = true; return; }
+  const html = tipHtml(tip.id);
+  if (html !== tip.html) { tip.html = html; el.innerHTML = html; }
+  el.hidden = false;
+  placeTip();
+  // курсор стоит на едущей машине или идущем человеке: состояние в подсказке обновляется раз в секунду
+  clearTimeout(tip.timer);
+  tip.timer = setTimeout(() => { if (tip.id && !el.hidden) renderTip(); }, 1000);
+}
+function placeTip() {
+  const el = $("#hud-tip");
+  if (el.hidden) return;
+  const W = world.getBoundingClientRect();
+  const w = el.offsetWidth, h = el.offsetHeight;
+  const px = tip.x - W.left, py = tip.y - W.top;
+  let x = px + 14, y = py + 20;
+  if (x + w > W.width - 8) x = px - w - 12;
+  if (y + h > W.height - 8) y = py - h - 14;
+  // подсказка не ложится на кнопки вида и столбик сценариев: уходит на другую сторону курсора
+  const hits = (x0) => [$(".hud__controls"), hud.dataset.try === "column" ? $("#hud-try") : null].some((p) => {
+    const b = p && layoutBox(p);
+    return b && x0 < b.x1 && x0 + w > b.x0 && y < b.y1 && y + h > b.y0;
+  });
+  if (hits(x)) { const alt = x > px ? px - w - 12 : px + 14; if (!hits(alt) && alt >= 8 && alt + w <= W.width - 8) x = alt; }
+  x = Math.max(8, x); y = Math.max(8, y);
+  el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+}
+
+/* ---------- «Попробуйте сами»: сценарии по кнопке ----------
+ * Сцена (scene.runScenario) сама подводит камеру и проигрывает сценарий, события приходят через onEvent,
+ * как обычно. Дверь склада открывается той же командой, что кнопка «Открыть дверь» в карточке. */
+/* short — подпись на телефоне (полная остаётся для экранного диктора); tab — вкладка журнала, где появится событие;
+   hint — что сейчас происходит (сцена присылает свой текст, этот — запасной для схемы без WebGL) */
+const SCN = [
+  { key: "face", label: "Сотрудник проходит по лицу", short: "По лицу", icon: "scan", ms: 9200, tab: "passes", re: /face|worker|employee|person|лиц|сотрудн/i,
+    hint: "Терминал узнаёт сотрудника, турникет открывается, проход попадает в журнал и табель" },
+  { key: "milk-truck", label: "Молоковоз на въезде", short: "Молоковоз", icon: "truck", ms: 11800, tab: "vehicles", re: /milk|молоков/i,
+    hint: "Камера читает номер, он в белом списке, шлагбаум открывается сам" },
+  { key: "unknown-car", label: "Чужая машина", short: "Чужая машина", icon: "car", ms: 12600, tab: "vehicles", re: /unknown|stranger|foreign|car|чуж|легков/i,
+    hint: "Номера нет в списке: шлагбаум остаётся закрытым, машина разворачивается" },
+  { key: "perimeter", label: "Тревога на периметре", short: "Тревога", icon: "fence", ms: 10000, tab: "alarms", re: /perim|fence|fox|intru|забор|периметр|лис/i,
+    hint: "Лиса пересекает линию у забора, камера поднимает тревогу, охране уходит сообщение в Telegram" },
+  { key: "feed-door", label: "Открыть дверь склада", short: "Дверь склада", icon: "door", ms: 6800, tab: "passes", re: /feed|door|склад|двер/i,
+    hint: "Команда из приложения идёт через облако на процессор, дверь открывается" },
+];
+const run = { key: null, token: 0, t0: 0, ms: 0, raf: 0, homeTimer: 0, sceneP: null, hint: "" };
+/* какие сценарии посетитель уже прошёл (только в этом просмотре страницы) */
+const tryDone = new Set();
+function sceneScenarios() {
+  let list = null;
+  try { list = scene && (typeof scene.scenarios === "function" ? scene.scenarios() : scene.scenarios); } catch {}
+  if (!Array.isArray(list)) return [];
+  return list.map((s) => (typeof s === "string" ? { id: s } : s)).filter((s) => s && s.id != null);
+}
+/* id сценариев у сцены могут отличаться от наших: сначала точное совпадение, потом по смыслу */
+function scenarioMap() {
+  const list = sceneScenarios(), used = new Set(), map = {};
+  for (const d of SCN) { const s = list.find((x) => x.id === d.key); if (s) { used.add(s); map[d.key] = s; } }
+  for (const d of SCN) {
+    if (map[d.key]) continue;
+    const s = list.find((x) => !used.has(x) && d.re.test(`${x.id} ${x.title || x.label || x.name || ""}`));
+    if (s) { used.add(s); map[d.key] = s; }
+  }
+  return map;
+}
+function scenarioMs(meta) {
+  if (!meta) return 0;
+  const v = Number(meta.durationMs || meta.ms || meta.duration || meta.dur || 0);
+  return v > 0 ? (v < 600 ? v * 1000 : v) : 0;
+}
+function availableScenarios() {
+  if (!scene) return SCN; // сцена ещё грузится: кнопки видны, но неактивны
+  const listed = sceneScenarios().length > 0, map = scenarioMap();
+  return SCN.filter((d) => (has("runScenario") && (!listed || map[d.key])) || (d.key === "feed-door" && has("openDoor")));
+}
+function renderTry() {
+  const box = $("#hud-try"), list = $("#try-list");
+  const avail = availableScenarios();
+  if (!avail.length) {
+    if (!box.hidden) { box.hidden = true; world.classList.remove("has-try"); syncInsets(); }
+    return;
+  }
+  box.hidden = false;
+  world.classList.add("has-try");
+  const sig = avail.map((d) => d.key).join(",");
+  if (list.dataset.sig !== sig) {
+    list.dataset.sig = sig;
+    // подсказка сценария может стоять внутри списка (под идущей кнопкой): выносим её, пока список перерисовывается
+    const hintEl = $("#try-hint");
+    if (hintEl && list.contains(hintEl)) box.append(hintEl);
+    list.innerHTML = avail.map((d) => `<button type="button" class="try-chip" data-try="${d.key}">${icon(d.icon)}<span class="try-chip__label">${esc(d.label)}</span><span class="try-chip__short" aria-hidden="true">${esc(d.short)}</span></button>`).join("");
+  }
+  syncTryMode();
+  renderTryDone();
+  updateTryState();
+  updateTryMask();
+}
+/* Где стоят сценарии:
+   column — столбиком под сводкой (большой экран, от 600 px в высоту);
+   pill — одна кнопка «Попробуйте сами», список открывается под ней (планшет, ноутбук с низким экраном);
+   row — строка: на телефоне под сводкой, а когда панели скрыты — внизу сцены (на телефоне вверху). */
+const tryColumnMQ = matchMedia("(min-width: 1081px) and (min-height: 600px)");
+function tryMode() { return state.bare || phoneMQ.matches ? "row" : tryColumnMQ.matches ? "column" : "pill"; }
+function syncTryMode() {
+  const m = tryMode();
+  if (hud.dataset.try === m) return;
+  hud.dataset.try = m;
+  if (m !== "pill") setTryOpen(false);
+  placeTryHint();
+  updateTryMask();
+  syncInsets();
+}
+function setTryOpen(open, { focus = false } = {}) {
+  const box = $("#hud-try"), btn = $("#try-toggle");
+  open = Boolean(open) && hud.dataset.try === "pill";
+  if (box.classList.contains("is-open") === open) return;
+  // фокус был в закрывающемся списке (нажали на сценарий с клавиатуры) — возвращаем его на кнопку
+  const a = document.activeElement, back = !open && a && a !== btn && $("#try-list").contains(a);
+  box.classList.toggle("is-open", open);
+  btn.setAttribute("aria-expanded", String(open));
+  placeTryHint();
+  if (open && focus) $(".try-chip:not(:disabled)")?.focus();
+  if (back) btn.focus({ preventScroll: true });
+}
+/* подпись к идущему сценарию: в столбике — сразу под его кнопкой, у кнопки «Попробуйте сами» — под ней,
+   в строке — отдельной плашкой над кнопками вида (на телефоне) или над строкой (панели скрыты) */
+function placeTryHint() {
+  const el = $("#try-hint"), box = $("#hud-try");
+  if (!el) return;
+  const text = run.key ? run.hint : "";
+  const was = !el.hidden;
+  if (!text) { el.hidden = true; if (el.parentElement !== box) box.append(el); if (was) syncInsets(); return; }
+  if (el.textContent !== text) el.textContent = text;
+  const mode = hud.dataset.try;
+  const chip = $(`.try-chip[data-try="${run.key}"]`);
+  if (mode === "column" && chip) { if (chip.nextElementSibling !== el) chip.after(el); }
+  else if (mode === "pill") { if (el.parentElement !== box) box.append(el); }
+  else if (el.parentElement !== hud) hud.append(el);
+  el.dataset.mode = mode;
+  el.hidden = false;
+  syncInsets();
+}
+/* пройденные сценарии: галочка на кнопке, «Пройдено 2 из 5», после всех пяти — ссылка на заявку */
+function renderTryDone() {
+  const chips = $$(".try-chip"), total = chips.length;
+  let n = 0;
+  for (const b of chips) {
+    const done = tryDone.has(b.dataset.try);
+    if (done) n++;
+    b.classList.toggle("is-done", done);
+    const mark = $(".try-chip__done", b);
+    if (done && !mark) b.insertAdjacentHTML("beforeend", `<svg class="i try-chip__done" aria-hidden="true"><use href="#i-check"/></svg><span class="sr-only">, пройдено</span>`);
+    else if (!done && mark) { mark.nextElementSibling?.remove(); mark.remove(); }
+  }
+  for (const el of $$("[data-try-count]")) {
+    el.hidden = !n;
+    el.innerHTML = n ? `<span class="sr-only">Пройдено </span>${n} из ${total}` : "";
+  }
+  const list = $("#try-list");
+  let cta = $(".try__cta", list);
+  if (total && n >= total && !cta) {
+    list.insertAdjacentHTML("beforeend", `<a class="try__cta" href="#pilot">Хотите так же на своей ферме? <b>Запросить пилот${icon("arrow")}</b></a>`);
+    cta = $(".try__cta", list);
+    // в строке ссылка стоит последней: прокручиваем строку к ней
+    if (hud.dataset.try === "row" && list.scrollWidth > list.clientWidth) list.scrollTo({ left: list.scrollWidth, behavior: reduced ? "auto" : "smooth" });
+  } else if (cta && !(total && n >= total)) cta.remove();
+}
+function updateTryState() {
+  const ready = Boolean(scene);
+  $("#hud-try").classList.toggle("is-loading", !ready);
+  $("#hud-try").classList.toggle("is-running", Boolean(run.key));
+  for (const b of $$(".try-chip")) {
+    const running = run.key === b.dataset.try;
+    b.classList.toggle("is-running", running);
+    b.disabled = Boolean(run.key) && !running;
+    if (running || !ready) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled");
+    b.title = !ready ? "Сцена ещё загружается" : running ? "Сценарий идёт" : "";
+    if (!running) b.style.removeProperty("--p");
+  }
+  // у кнопки «Попробуйте сами» (планшет) — название идущего сценария и полоска хода
+  const d = run.key && SCN.find((x) => x.key === run.key);
+  const tl = $("#try-toggle-label");
+  if (tl) tl.textContent = d ? d.label : "Попробуйте сами";
+  $("#try-toggle")?.classList.toggle("is-running", Boolean(d));
+  if (!d) $("#try-toggle")?.style.removeProperty("--p");
+  placeTryHint();
+}
+function updateTryMask() {
+  const l = $("#try-list");
+  if (!l) return;
+  l.classList.toggle("is-more", l.scrollWidth - l.clientWidth - l.scrollLeft > 2);
+  l.classList.toggle("is-scrolled", l.scrollLeft > 2);
+}
+function tickRun() {
+  cancelAnimationFrame(run.raf);
+  const step = () => {
+    if (!run.key) return;
+    const b = $(`.try-chip[data-try="${run.key}"]`);
+    const byTime = (performance.now() - run.t0) / Math.max(1000, run.ms);
+    const p = Math.min(0.98, run.sceneP != null ? Math.max(run.sceneP, 0.02) : byTime);
+    if (b) b.style.setProperty("--p", p.toFixed(3));
+    $("#try-toggle")?.style.setProperty("--p", p.toFixed(3));
+    run.raf = requestAnimationFrame(step);
+  };
+  step();
+}
+/* сцена сообщает ход сценария; при старте круг демо перескакивает, счётчики выравниваем без всплеска «+1» */
+function onSceneScenario(e) {
+  if (!e || !e.phase) return;
+  if (e.phase === "start") {
+    const s = cur(), site = SITE.sites[state.site];
+    if (typeof e.onSiteDelta === "number" && e.onSiteDelta) s.kpi.onSite = Math.min(site.scheduled, Math.max(0, s.kpi.onSite + e.onSiteDelta));
+    if (Array.isArray(e.vehiclesInside)) s.inside = new Set(e.vehiclesInside);
+    if (run.key && typeof e.duration === "number" && e.duration > 0) run.ms = e.duration * 1000;
+    renderKpis();
+  }
+  if (run.key && typeof e.progress === "number") run.sceneP = Math.max(0, Math.min(1, e.progress));
+  // дверь склада открылась по команде: строка в журнале появляется сейчас, а не в конце сценария
+  if (e.phase === "command" && run.key === "feed-door" && !run.doorLogged) {
+    run.doorLogged = true;
+    doorOpened(e.objectId || "feed", typeof e.ms === "number" ? e.ms : 900);
+  }
+}
+function cancelScenario() {
+  if (!run.key) return;
+  run.token++;
+  run.key = null;
+  cancelAnimationFrame(run.raf);
+  clearTimeout(run.homeTimer);
+  updateTryState();
+}
+function scrollChipIntoRow(chip) {
+  const l = $("#try-list");
+  if (!chip || !l || l.scrollWidth <= l.clientWidth + 2) return;
+  // запас 32 px — ширина затухания у краёв строки
+  const lr = l.getBoundingClientRect(), cr = chip.getBoundingClientRect();
+  let to = null;
+  if (cr.left < lr.left + 32) to = l.scrollLeft - (lr.left + 32 - cr.left);
+  else if (cr.right > lr.right - 32) to = l.scrollLeft + (cr.right - (lr.right - 32));
+  if (to != null) l.scrollTo({ left: Math.max(0, Math.min(l.scrollWidth - l.clientWidth, to)), behavior: reduced ? "auto" : "smooth" });
+}
+async function startScenario(key) {
+  const d = SCN.find((x) => x.key === key);
+  if (!d || run.key) return;
+  if (!scene) { showHint("Сцена ещё загружается, попробуйте через пару секунд", 2200, true); return; }
+  noteInteraction();
+  clearTimeout(run.homeTimer);
+  if (state.userPaused) { state.userPaused = false; applyPause(); }
+  const meta = scenarioMap()[key];
+  const token = ++run.token;
+  run.key = key;
+  run.t0 = performance.now();
+  run.ms = scenarioMs(meta) || d.ms;
+  run.sceneP = null;
+  run.doorLogged = false;
+  run.hint = d.hint || (meta && meta.hint) || "";
+  setTryOpen(false);
+  updateTryState();
+  tickRun();
+  // строка не помещается: идущая кнопка въезжает в видимую часть строки (страница при этом не прокручивается)
+  scrollChipIntoRow($(`.try-chip[data-try="${key}"]`));
+  // журнал сразу на нужной вкладке: машины — «Машины», тревога — «Тревоги» (если посетитель сам не выбирал вкладку только что)
+  if (d.tab && d.tab !== state.tab && !state.query && Date.now() - state.tabTouched > 10000) setTab(d.tab);
+  announce(`Сценарий «${d.label}». ${run.hint}`, true);
+  let ok = true, why = "";
+  const door = key === "feed-door";
+  try {
+    if (!has("runScenario") || (sceneScenarios().length && !meta)) {
+      // у сцены нет такого сценария (схема без WebGL): дверь открываем той же командой, что в карточке
+      ok = door ? await doorScenario(token) : false;
+    } else {
+      // камера подлетает сама, поэтому выбор снимаем: карточка вернётся к обзору фермы
+      if (state.selected) setSelected(null);
+      if (door) state.cmd.feed = { phase: "sending" };
+      const res = scene.runScenario(meta ? meta.id : key);
+      let v = null;
+      if (res === false) ok = false;
+      else if (res && typeof res.then === "function") {
+        v = await withTimeout(res, run.ms + 30000);
+        if (v === false || (v && v.ok === false)) ok = false;
+        // сцена ответила сразу «запущено»: ждём, сколько длится сценарий
+        const left = run.t0 + (scenarioMs(meta) || 0) * 0.92 - performance.now();
+        if (ok && left > 0 && run.sceneP == null) await sleep(left);
+      } else await sleep(run.ms);
+      // команда «открыть» ушла из приложения: в журнал, как кнопка в карточке (если сцена не сообщила раньше)
+      if (door && ok && token === run.token && !run.doorLogged) doorOpened("feed", v && typeof v.ms === "number" ? v.ms : 900);
+    }
+  } catch (e) {
+    ok = false;
+    why = e && e.code;
+    if (why !== "cancelled") console.warn("scenario", e);
+  }
+  if (door && state.cmd.feed?.phase === "sending") { delete state.cmd.feed; if (state.selected === "feed") renderDetail(true); }
+  if (token !== run.token) return;
+  run.key = null;
+  run.sceneP = null;
+  cancelAnimationFrame(run.raf);
+  if (ok) tryDone.add(key);
+  renderTryDone();
+  updateTryState();
+  if (!ok) {
+    if (why === "cancelled") return;
+    showHint(why === "busy" ? "Подождите пару секунд: сцена ещё занята" : "Сейчас не получилось. Попробуйте ещё раз через пару секунд", 2600, true);
+    return;
+  }
+  // если после сценария никто не трогал сцену, через 3 с камера возвращается к общему виду;
+  // автотур снова ждёт 10 с простоя, считая от конца сценария, а не от нажатия на кнопку
+  lastInteract = Date.now();
+  const since = lastInteract;
+  run.homeTimer = setTimeout(() => {
+    if (run.key || lastInteract !== since || state.selected || mode !== "3d" || !scene || isPaused()) return;
+    try { scene.resetView({ dur: 1.4 }); } catch {}
+  }, 3000);
+}
+async function doorScenario(token) {
+  if (!has("openDoor")) return false;
+  setSelected("feed"); // камера к складу, карточка двери открыта
+  await sleep(reduced ? 300 : 1300);
+  if (token !== run.token) return true;
+  await openDoor("feed");
+  await sleep(2600);
+  return !state.cmd.feed || state.cmd.feed.phase !== "err";
+}
+function bindTry() {
+  const list = $("#try-list"), box = $("#hud-try"), toggle = $("#try-toggle");
+  list.addEventListener("click", (e) => {
+    if (e.target.closest(".try__cta")) { setTryOpen(false); return; }
+    const b = e.target.closest("[data-try]");
+    if (!b || b.disabled) return;
+    if (!scene) { showHint("Сцена ещё загружается, попробуйте через пару секунд", 2200, true); return; }
+    startScenario(b.dataset.try);
+  });
+  // планшет: одна кнопка «Попробуйте сами», список открывается под ней
+  toggle.addEventListener("click", (e) => { setTryOpen(!box.classList.contains("is-open"), { focus: e.detail === 0 }); });
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && box.classList.contains("is-open")) { e.stopPropagation(); setTryOpen(false); toggle.focus(); }
+  });
+  document.addEventListener("pointerdown", (e) => { if (box.classList.contains("is-open") && !box.contains(e.target)) setTryOpen(false); }, true);
+  box.addEventListener("focusout", () => setTimeout(() => { if (box.classList.contains("is-open") && !box.contains(document.activeElement) && document.activeElement !== document.body) setTryOpen(false); }, 0));
+  for (const mq of [tryColumnMQ, phoneMQ]) mq.addEventListener?.("change", syncTryMode);
+  list.addEventListener("scroll", updateTryMask, { passive: true });
+  // строка не помещается: колесо мыши над ней листает кнопки вбок, у краёв — снова страницу
+  list.addEventListener("wheel", (e) => {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || list.scrollWidth <= list.clientWidth + 2) return;
+    const max = list.scrollWidth - list.clientWidth;
+    if ((e.deltaY > 0 && list.scrollLeft >= max - 1) || (e.deltaY < 0 && list.scrollLeft <= 1)) return;
+    e.preventDefault();
+    list.scrollLeft += e.deltaY;
+  }, { passive: false });
+  if ("ResizeObserver" in window) new ResizeObserver(updateTryMask).observe(list);
+}
+
+/* ---------- панели скрыты / показаны ---------- */
+const PANELS = [".hud__top", "#hud-kpis", "#hud-detail", "#hud-timeline", "#hud-feed"];
+let goneTimer = 0;
+function setPanels(hidden, { save = true, instant = false } = {}) {
+  hidden = Boolean(hidden);
+  if (hidden === state.bare && !instant) return;
+  state.bare = hidden;
+  const active = document.activeElement;
+  const wasInPanel = active && PANELS.some((s) => $(s)?.contains(active));
+  const moving = [$("#hud-try"), $(".hud__controls"), $(".hud__demo-note")].filter((el) => el && !el.hidden);
+  const before = !instant && !reduced ? moving.map((el) => el.getBoundingClientRect()) : null;
+  clearTimeout(goneTimer);
+  if (hidden) {
+    closeSearch(false);
+    openSiteList(false);
+    setFeedOpen(false);
+    hud.classList.add("is-bare");
+    if (instant || reduced) hud.classList.add("is-gone");
+    else goneTimer = setTimeout(() => { if (state.bare) hud.classList.add("is-gone"); }, 300);
+  } else {
+    hud.classList.remove("is-gone", "is-bare");
+  }
+  world.classList.toggle("is-bare", hidden);
+  syncTryMode();
+  for (const s of PANELS) {
+    const el = $(s);
+    if (!el) continue;
+    el.inert = hidden;
+    if (hidden) el.setAttribute("aria-hidden", "true"); else el.removeAttribute("aria-hidden");
+  }
+  const btn = $("#ctl-panels");
+  btn.setAttribute("aria-label", hidden ? "Показать панели" : "Скрыть панели");
+  btn.title = hidden ? "Показать панели (H)" : "Скрыть панели (H)";
+  $("use", btn).setAttribute("href", hidden ? "#i-eye" : "#i-eye-off");
+  const pill = $("#hud-show");
+  pill.hidden = !hidden;
+  // кнопки вида, строка сценариев и пометка «Демо» переезжают плавно, от старого места к новому
+  if (before) {
+    moving.forEach((el, i) => {
+      const r = el.getBoundingClientRect(), dx = before[i].left - r.left, dy = before[i].top - r.top;
+      if ((Math.abs(dx) > 1 || Math.abs(dy) > 1) && el.animate) {
+        try { el.animate([{ translate: `${dx}px ${dy}px` }, { translate: "0px 0px" }], { duration: 300, easing: "cubic-bezier(.2, .7, .2, 1)" }); } catch {}
+      }
+    });
+  }
+  // фокус не теряется: из спрятанной панели или с исчезнувшей пилюли — на кнопку с глазом
+  if ((hidden && wasInPanel) || (!hidden && active === pill)) btn.focus({ preventScroll: true });
+  if (hidden) hideTip();
+  if (save) store.set("panels", hidden ? "hidden" : "shown");
+  syncInsets(true);
+  setTimeout(() => syncInsets(true), 340);
+  if (!instant) announce(hidden ? "Панели скрыты. Вернуть их можно клавишей H или кнопкой «Показать панели»." : "Панели показаны.", true);
+}
+
+/* ---------- день и ночь ---------- */
+function setNight(on, { save = true, quiet = false } = {}) {
+  state.night = Boolean(on);
+  if (save) store.set("night", state.night ? "1" : "0");
+  const ok = has("setNight");
+  // пока грузится 3D, дневной снимок фермы притушен: у того, кто выбрал ночь, нет вспышки дня
+  world.classList.toggle("wants-night", state.night && !ok && mode !== "fallback");
+  try { if (ok) scene.setNight(state.night); } catch (e) { console.warn(e); }
+  world.classList.toggle("is-night", ok && state.night);
+  const b = $("#ctl-night");
+  b.setAttribute("aria-label", state.night ? "Включить день" : "Включить ночь");
+  b.title = state.night ? "День (N)" : "Ночь (N)";
+  $("use", b).setAttribute("href", state.night ? "#i-sun" : "#i-moon");
+  if (!quiet && ok) announce(state.night ? "Ночь на ферме." : "День на ферме.", true);
+}
+
+/* ---------- во весь экран ---------- */
+const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+const fsSupported = () => Boolean((document.fullscreenEnabled || document.webkitFullscreenEnabled) && (world.requestFullscreen || world.webkitRequestFullscreen));
+function toggleFullscreen() {
+  const fail = () => showHint("Браузер не разрешил открыть сцену во весь экран", 2600, true);
+  try {
+    if (fsElement()) {
+      const p = (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      if (p && p.catch) p.catch(() => {});
+      return;
+    }
+    const req = world.requestFullscreen || world.webkitRequestFullscreen;
+    if (!req) { fail(); return; }
+    const p = req.call(world, { navigationUI: "hide" });
+    if (p && p.catch) p.catch(fail);
+  } catch { fail(); }
+}
+function onFullscreenChange() {
+  const on = fsElement() === world;
+  world.classList.toggle("is-fullscreen", on);
+  const b = $("#ctl-fs");
+  b.setAttribute("aria-label", on ? "Выйти из полноэкранного режима" : "Во весь экран");
+  b.title = on ? "Обычный размер (F)" : "Во весь экран (F)";
+  $("use", b).setAttribute("href", on ? "#i-shrink" : "#i-expand");
+  hideTip();
+  syncInsets(true);
+  setTimeout(() => syncInsets(true), 300);
+}
+
+/* какие кнопки показывать: зависит от того, что умеет сцена и браузер */
+function syncFeatures() {
+  $("#ctl-night").hidden = !has("setNight");
+  $("#ctl-fs").hidden = !fsSupported();
+  world.classList.toggle("is-night", has("setNight") && state.night);
+  renderTry();
+}
+
+/* ---------- клавиатура ----------
+ * H, N, F — только когда фокус на сцене или её кнопках: одиночные клавиши не срабатывают где-то ещё на странице.
+ * Нажатие на сцену переводит на неё фокус. H работает и по русской «Н» (она похожа на латинскую H).
+ * Стрелки и W A S D, Q и E, плюс и минус — когда в фокусе сама сцена. */
+const PAN_KEYS = { ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0], ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1] };
+function onSceneKey(e) {
+  const isH = e.code === "KeyH" || e.key === "н" || e.key === "Н";
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || (e.repeat && (isH || /Key[NF]/.test(e.code)))) return;
+  const a = document.activeElement;
+  if (/INPUT|TEXTAREA|SELECT/.test(a?.tagName || "") || a?.isContentEditable) return;
+  const onCanvas = a === canvas;
+  if (!onCanvas && !(a && world.contains(a))) return;
+  if (isH) { e.preventDefault(); setPanels(!state.bare); return; }
+  if (e.code === "KeyN") { if (has("setNight")) { e.preventDefault(); setNight(!state.night); } return; }
+  if (e.code === "KeyF") { if (fsSupported()) { e.preventDefault(); toggleFullscreen(); } return; }
+  // стрелки, W A S D, Q и E, плюс и минус сцена обрабатывает сама (setKeyboardEnabled); здесь — запасной путь
+  if (!onCanvas || mode !== "3d" || !scene || state.sceneKeys) return;
+  try {
+    const pan = PAN_KEYS[e.code];
+    if (pan) {
+      e.preventDefault();
+      noteInteraction();
+      const k = e.shiftKey ? 2.5 : 1;
+      if (has("panBy")) scene.panBy(pan[0] * PAN_STEP * k, pan[1] * PAN_STEP * k);
+      else if (pan[0]) scene.rotateBy(pan[0] * 15);
+      return;
+    }
+    if (e.code === "KeyQ" || e.code === "KeyE") { e.preventDefault(); noteInteraction(); scene.rotateBy(e.code === "KeyQ" ? -20 : 20); return; }
+    if (e.key === "+" || e.key === "=" || e.code === "NumpadAdd") { e.preventDefault(); noteInteraction(); scene.zoomBy(1); return; }
+    if (e.key === "-" || e.key === "_" || e.code === "NumpadSubtract") { e.preventDefault(); noteInteraction(); scene.zoomBy(-1); return; }
+  } catch (err) { console.warn(err); }
+}
+const PAN_STEP = 6;
 
 /* ---------- поиск ---------- */
 let searchIndex = [];
@@ -1072,20 +1840,24 @@ function bindHud() {
 
   // вкладки журнала
   const tabs = $(".feed-tabs");
-  tabs.addEventListener("click", (e) => { const b = e.target.closest(".feed-tab"); if (b) setTab(b.dataset.tab); });
+  tabs.addEventListener("click", (e) => { const b = e.target.closest(".feed-tab"); if (b) { state.tabTouched = Date.now(); setTab(b.dataset.tab); } });
   tabs.addEventListener("keydown", (e) => {
     const order = ["passes", "vehicles", "alarms"];
     const i = order.indexOf(state.tab);
-    if (e.key === "ArrowRight") { e.preventDefault(); setTab(order[(i + 1) % 3], true); }
-    if (e.key === "ArrowLeft") { e.preventDefault(); setTab(order[(i + 2) % 3], true); }
+    if (e.key === "ArrowRight") { e.preventDefault(); state.tabTouched = Date.now(); setTab(order[(i + 1) % 3], true); }
+    if (e.key === "ArrowLeft") { e.preventDefault(); state.tabTouched = Date.now(); setTab(order[(i + 2) % 3], true); }
   });
   $("#feed-handle").addEventListener("click", () => setFeedOpen(!state.feedOpen));
 
   // кнопки вида
   $(".hud__controls").addEventListener("click", (e) => {
     const b = e.target.closest("[data-ctl]");
-    if (!b || !scene) return;
+    if (!b) return;
     const c = b.dataset.ctl;
+    if (c === "panels") { setPanels(!state.bare); return; }
+    if (c === "fullscreen") { toggleFullscreen(); return; }
+    if (!scene) return;
+    if (c === "night") { setNight(!state.night); return; }
     try {
       if (c === "zoom-in") scene.zoomBy(1);
       if (c === "zoom-out") scene.zoomBy(-1);
@@ -1130,9 +1902,11 @@ function bindHud() {
     if (open) input.focus();
   });
 
+  $("#hud-show").addEventListener("click", () => setPanels(false));
+  document.addEventListener("keydown", onSceneKey);
   document.addEventListener("keydown", (e) => {
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "") || document.activeElement?.isContentEditable;
-    if (e.key === "/" && !typing && isHeroVisible()) { e.preventDefault(); if (phoneMQ.matches) $("#search-toggle").click(); else input.focus(); }
+    if (e.key === "/" && !typing && isHeroVisible() && !state.bare) { e.preventDefault(); if (phoneMQ.matches) $("#search-toggle").click(); else input.focus(); }
     if (e.key === "Escape" && !typing) {
       if (!$("#site-switch-list").hidden) openSiteList(false);
       else if (state.selected) setSelected(null);
@@ -1173,11 +1947,41 @@ function shownRect(el) {
   const r = el.getBoundingClientRect();
   return r.width && r.height ? r : null;
 }
+/* место элемента внутри сцены без учёта анимации переезда (offset* не видят translate) */
+function layoutBox(el) {
+  if (!el || el.hidden || !el.offsetWidth || el.offsetParent !== hud) return null;
+  return { x0: el.offsetLeft, y0: el.offsetTop, x1: el.offsetLeft + el.offsetWidth, y1: el.offsetTop + el.offsetHeight };
+}
+/* плашка «что происходит в сценарии» вне столбика: подписи сцены её обходят сбоку
+   (во всю ширину — на телефоне — обойти нельзя, там она стоит внизу, над кнопками вида) */
+function tryHintBox(W) {
+  const el = $("#try-hint");
+  if (!el || el.hidden || hud.dataset.try === "column") return null;
+  const r = el.getBoundingClientRect();
+  if (!r.width || r.width > W.width * 0.6) return null;
+  return { x0: r.left - W.left, y0: r.top - W.top, x1: r.right - W.left, y1: r.bottom - W.top };
+}
 function measureInsets() {
   const W = world.getBoundingClientRect();
   if (W.width < 50 || W.height < 50) return null;
+  const hintBox = tryHintBox(W);
+  const tryEl = $("#hud-try"), tryBox = layoutBox(tryEl), noteBox = layoutBox($(".hud__demo-note"));
+  if (state.bare) {
+    // панели скрыты: ферма на весь кадр, кроме строки сценариев (внизу, на телефоне вверху) и кнопок вида;
+    // подписи сцены не заходят в мягкую дымку у верхнего края (labelTop)
+    const H = hud.clientHeight;
+    const ctl = layoutBox($(".hud__controls")), pill = layoutBox($("#hud-show"));
+    const out = { top: 0, right: 0, bottom: 0, left: 0, avoid: [pill, noteBox, hintBox].filter(Boolean), labelTop: 56 };
+    if (tryBox) { if (tryBox.y0 + tryBox.y1 > H) out.bottom = H - tryBox.y0 + 6; else out.top = tryBox.y1 + 6; }
+    if (ctl) { if (phoneMQ.matches) out.bottom = Math.max(out.bottom, H - ctl.y0 + 6); else out.right = W.width - ctl.x0 + 6; }
+    return out;
+  }
+  // На телефоне строка сценариев — отдельная полоса под сводкой (блок сцены для неё выше на 48 px), кадр под ней.
+  // На компьютере и планшете кадр фермы от сценариев не зависит: столбик или кнопка «Попробуйте сами»
+  // лежат поверх края сцены, подписи их обходят.
+  const tryRow = Boolean(tryBox) && phoneMQ.matches;
   const topBar = shownRect($(".hud__top")), kpis = shownRect($("#hud-kpis"));
-  const topEdge = Math.max(topBar ? topBar.bottom : W.top, kpis ? kpis.bottom : W.top);
+  const topEdge = Math.max(topBar ? topBar.bottom : W.top, kpis ? kpis.bottom : W.top, tryRow ? W.top + tryBox.y1 : W.top);
   const feedEl = $("#hud-feed"), detailEl = $("#hud-detail");
   const out = { top: topEdge - W.top + 6, right: 0, bottom: 0, left: 0 };
   if (phoneMQ.matches) {
@@ -1188,6 +1992,8 @@ function measureInsets() {
     if (ctl) edge = Math.min(edge, ctl.top);
     if (state.selected) edge = Math.min(edge, W.bottom - 8 - detailEl.offsetHeight);
     out.bottom = W.bottom - edge + 6;
+    // пометка «Демо» под строкой сценариев и плашка сценария над кнопками вида: подписи сцены их обходят
+    out.avoid = [noteBox, hintBox].filter(Boolean);
     return out;
   }
   const detail = shownRect(detailEl), feed = shownRect(feedEl), tl = shownRect($("#hud-timeline")), ctl = shownRect($(".hud__controls"));
@@ -1200,15 +2006,21 @@ function measureInsets() {
   if (tl) out.bottom = Math.max(out.bottom, W.bottom - tl.top + 6);
   // кнопки вида стоят внутри свободной части: подписи сцены их обходят
   if (ctl && colLeft < Infinity) out.avoid = [{ x0: ctl.left - W.left, y0: ctl.top - W.top, x1: ctl.right - W.left, y1: ctl.bottom - W.top }];
+  if (tryBox) (out.avoid = out.avoid || []).push(tryBox);
+  if (hintBox) (out.avoid = out.avoid || []).push(hintBox);
   return out;
 }
 function syncInsets(now) {
   const run = () => {
     insetsRaf = 0;
-    if (!scene || typeof scene.setViewInsets !== "function") return;
     const i = measureInsets();
     if (!i) return;
-    const key = [i.top, i.right, i.bottom, i.left, ...(i.avoid || []).flatMap((a) => [a.x0, a.y1])].map((v) => Math.round(v / 2)).join(",");
+    // короткие подсказки встают по центру свободной части сцены, у её нижнего края
+    hud.style.setProperty("--free-l", Math.round(i.left) + "px");
+    hud.style.setProperty("--free-r", Math.round(i.right) + "px");
+    hud.style.setProperty("--free-b", Math.round(i.bottom) + "px");
+    if (!scene || typeof scene.setViewInsets !== "function") return;
+    const key = [i.top, i.right, i.bottom, i.left, i.labelTop || 0, ...(i.avoid || []).flatMap((a) => [a.x0, a.y1])].map((v) => Math.round(v / 2)).join(",");
     if (key === lastInsets) return;
     const first = !lastInsets;
     lastInsets = key;
@@ -1220,7 +2032,7 @@ function syncInsets(now) {
 function watchInsets() {
   if (!("ResizeObserver" in window)) { addEventListener("resize", () => syncInsets()); return; }
   const ro = new ResizeObserver(() => syncInsets());
-  for (const el of [world, $(".hud__top"), $("#hud-kpis"), $("#hud-detail"), $("#hud-feed"), $("#hud-timeline")]) if (el) ro.observe(el);
+  for (const el of [world, $(".hud__top"), $("#hud-kpis"), $("#hud-detail"), $("#hud-feed"), $("#hud-timeline"), $("#hud-try")]) if (el) ro.observe(el);
 }
 function isHeroVisible() { return !state.offscreen; }
 
@@ -1485,10 +2297,18 @@ function init() {
   tickClock();
   setInterval(tickClock, 5000);
   bindHud();
+  bindTry();
+  bindSceneInput();
   setSearchPlaceholder();
   narrowMQ.addEventListener?.("change", setSearchPlaceholder);
   renderAll();
   setTab("passes");
+  // выбор посетителя с прошлого раза: панели скрыты, ночь (ночь включится, когда загрузится 3D)
+  syncFeatures();
+  setNight(state.night, { save: false, quiet: true });
+  if (state.bare) setPanels(true, { save: false, instant: true });
+  document.addEventListener("fullscreenchange", onFullscreenChange);
+  document.addEventListener("webkitfullscreenchange", onFullscreenChange);
   observeHero();
   applyPause();
   renderTimesheet();
@@ -1496,7 +2316,7 @@ function init() {
   bindResolveDemo();
   renderContacts();
   bindLeadForm();
-  phoneMQ.addEventListener?.("change", () => { closeSearch(false); setFeedOpen(false); });
+  phoneMQ.addEventListener?.("change", () => { closeSearch(false); setFeedOpen(false); updateTryMask(); });
   // 3D грузим после первой отрисовки, когда главный экран рядом с видимой областью
   const go = () => boot3D().catch((e) => useFallback(e));
   const later = (fn) => ("requestIdleCallback" in window ? requestIdleCallback(fn, { timeout: 1200 }) : setTimeout(fn, 200));

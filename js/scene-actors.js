@@ -213,6 +213,14 @@ export const plateOf = (id, site = 'north') => (PLATES[site] && PLATES[site][id]
 
 export const PERSON_SCALE = 1.4;
 
+// Where the lamps of each vehicle model are (local, forward = +x), for the night headlights. Matches lights() above.
+export const VEHICLE_LAMPS = {
+  'milk-truck': { front: [4.88, 1.08, 0.92], tail: [-4.88, 1.08, 0.8] },
+  'feed-truck': { front: [4.26, 1.06, 0.9], tail: [-4.08, 1.06, 0.8] },
+  tractor: { front: [2.24, 1.5, 0.32], tail: null, beamFrom: 3.7 },
+  'unknown-car': { front: [2.24, 0.82, 0.6], tail: [-2.24, 0.84, 0.62] },
+};
+
 export function createActors(mats) {
   const actors = {};
   // vehicles

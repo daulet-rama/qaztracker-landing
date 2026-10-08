@@ -1,7 +1,8 @@
 /*
  * Запасная сцена без WebGL: изометрическая SVG-иллюстрация фермы.
  * Она же показывается сразу при загрузке, пока грузится 3D (постер), и умеет то же, что 3D-сцена:
- * objects, setSite, select, openDoor, zoomBy, rotateBy, resetView, setPaused, dispose.
+ * objects, setSite, select, openDoor, zoomBy, rotateBy, resetView, setPaused, dispose,
+ * scenarios и runScenario (кнопки «Попробуйте сами»), onHover (подсказка у курсора).
  * Если simulate = true, сама ведёт демо-сценарий (~90 с по кругу) и шлёт события через onEvent.
  */
 
@@ -401,6 +402,45 @@ function buildScript() {
     { t: 89000, door: { objectId: "office", state: "closed" } },
   ];
 }
+/* «Попробуйте сами»: короткие сценарии по кнопке. Пока такой идёт, основной круг стоит,
+   поэтому люди и машины двух сценариев не встречаются. */
+const SCENARIOS = {
+  face: {
+    focus: "checkpoint", ms: 5600,
+    steps: [
+      { t: 0, walk: { id: "sc-face", color: WORKER_COLORS[0] } },
+      { t: 2900, face: { person: "Ерлан Касымов", point: "Проходная · вход", objectId: "checkpoint", result: "allowed" } },
+    ],
+  },
+  "milk-truck": {
+    focus: "gate", ms: 10800,
+    steps: [
+      { t: 0, place: { id: "milk-truck", to: "start" } },
+      { t: 60, move: { id: "milk-truck", to: "gate-out", ms: 3000 } },
+      { t: 3400, plate: { vehicleId: "milk-truck", vehicle: "молоковоз", result: "allowed", direction: "in" } },
+      { t: 4100, barrier: true },
+      { t: 5100, move: { id: "milk-truck", to: "park", ms: 5000 } },
+      { t: 10400, barrier: false },
+    ],
+  },
+  "unknown-car": {
+    focus: "gate", ms: 11200,
+    steps: [
+      { t: 0, place: { id: "unknown-car", to: "home" } },
+      { t: 60, move: { id: "unknown-car", to: "gate-out", ms: 3000 } },
+      { t: 3500, plate: { vehicleId: "unknown-car", vehicle: "легковой автомобиль", result: "not_in_list", direction: "in" } },
+      { t: 7500, move: { id: "unknown-car", to: "home", ms: 3500 } },
+    ],
+  },
+  perimeter: {
+    focus: "perimeter-cam", ms: 7400,
+    steps: [
+      { t: 0, fox: true },
+      { t: 3500, alarm: { kind: "line_crossing", where: "Периметр · восточная сторона", objectId: "perimeter-cam" } },
+      { t: 7000, unfox: true },
+    ],
+  },
+};
 /* позиции машин: смещение (dx, dz) от исходной модели и видимость */
 const MOVES = {
   "milk-truck": { park: [0, 0, 1], "gate-out": [0, 74, 1], "gate-in": [0, 52, 1], away: [0, 98, 0], start: [0, 98, 0] },
@@ -409,7 +449,7 @@ const MOVES = {
 
 /* ---------- сама сцена ---------- */
 export function createFallbackScene(container, opts = {}) {
-  const { onSelect = () => {}, onEvent = () => {}, reducedMotion = false } = opts;
+  const { onSelect = () => {}, onEvent = () => {}, onHover = () => {}, reducedMotion = false } = opts;
   let site = "north";
   let R = 0;
   let zoom = 1;
@@ -761,8 +801,21 @@ export function createFallbackScene(container, opts = {}) {
       onSelect(id);
     }
   }
+  /* наведение: какая точка или машина под курсором */
+  let hoverId = null;
+  function onMove(e) {
+    if (e.pointerType && e.pointerType !== "mouse") return;
+    const hit = e.target.closest?.(".obj, .pin");
+    const id = hit ? hit.dataset.id || hit.dataset.pin || null : null;
+    if (id === hoverId) return;
+    hoverId = id;
+    onHover(id, e.clientX, e.clientY);
+  }
+  function onLeave() { if (hoverId) { hoverId = null; onHover(null); } }
   svg.addEventListener("click", onClick);
   svg.addEventListener("keydown", onKey);
+  svg.addEventListener("pointermove", onMove);
+  svg.addEventListener("pointerleave", onLeave);
   const ro = new ResizeObserver(() => applyView(false));
   ro.observe(container);
 
@@ -813,6 +866,7 @@ export function createFallbackScene(container, opts = {}) {
       emit({ type: "plate", plate: PLATES[site][vehId], vehicle: s.plate.vehicle, objectId: "gate", result: s.plate.result, direction: s.plate.direction, vehicleId: vehId });
     }
     if ("barrier" in s) { setBarrier(s.barrier); emit({ type: "door", objectId: "gate", state: s.barrier ? "open" : "closed" }); }
+    if (s.place) { moverState[s.place.id] = MOVES[s.place.id][s.place.to]; applyMovers(false); }
     if (s.move) { moverState[s.move.id] = MOVES[s.move.id][s.move.to]; applyMovers(true, s.move.ms); }
     if (s.door) { setDoor(s.door.objectId, s.door.state === "open"); emit({ type: "door", objectId: s.door.objectId, state: s.door.state }); }
     if (s.alarm) { pulse(s.alarm.objectId === "perimeter-cam" ? "perimeter-cam" : s.alarm.objectId, false); emit(Object.assign({ type: "alarm" }, s.alarm)); }
@@ -849,7 +903,7 @@ export function createFallbackScene(container, opts = {}) {
     const now = performance.now();
     const dt = Math.min(1000, now - lastTick);
     lastTick = now;
-    if (paused || disposed || !simulate) return;
+    if (paused || disposed || !simulate || scenarioBusy) return;
     simClock += dt;
     while (simIdx < script.length && script[simIdx].t <= simClock) runStep(script[simIdx++]);
     if (simClock >= LOOP_MS) resetLoop();
@@ -863,8 +917,31 @@ export function createFallbackScene(container, opts = {}) {
     simTimer = setInterval(tick, 200);
   }
 
+  /* сценарий по кнопке: вид подъезжает к месту, шаги идут сразу, потом вид возвращается */
+  let scenarioBusy = false, scTimers = [];
+  function runScenario(id) {
+    const sc = SCENARIOS[id];
+    if (!sc || scenarioBusy || disposed) return Promise.resolve(false);
+    scenarioBusy = true;
+    const before = { zoom, focus };
+    const b = !selected && bboxOf(sc.focus);
+    if (b) { focus = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]; zoom = Math.max(zoom, 1.5); applyView(true); }
+    return new Promise((resolve) => {
+      for (const st of sc.steps) scTimers.push(setTimeout(() => { if (!disposed) runStep(st); }, st.t));
+      scTimers.push(setTimeout(() => {
+        scenarioBusy = false;
+        scTimers = [];
+        if (b && !selected && !disposed) { zoom = before.zoom; focus = before.focus; applyView(true); }
+        lastTick = performance.now();
+        resolve(true);
+      }, sc.ms));
+    });
+  }
+
   const api = {
     objects: OBJECTS.map((o) => Object.assign({ site: "north" }, o)),
+    scenarios: Object.entries(SCENARIOS).map(([id, sc]) => ({ id, focus: sc.focus, duration: sc.ms / 1000 })),
+    runScenario,
     async setSite(id) {
       if (id !== "north" && id !== "south") return;
       site = id;
@@ -916,6 +993,9 @@ export function createFallbackScene(container, opts = {}) {
     dispose() {
       disposed = true;
       clearInterval(simTimer);
+      scTimers.forEach(clearTimeout);
+      svg.removeEventListener("pointermove", onMove);
+      svg.removeEventListener("pointerleave", onLeave);
       doorTimers.forEach(clearTimeout);
       cancelAnimationFrame(viewAnim);
       ro.disconnect();

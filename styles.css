@@ -198,7 +198,9 @@ pre { margin: 0; font: inherit; white-space: pre-wrap; }
 .world__poster-img img { object-fit: cover; object-position: 50% 50%; }
 .world__poster.is-svg .world__poster-img { display: none; }
 /* мягкая дымка сверху: под плавающей панелью не видно обрезанных объектов */
-.world__stage::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 120px; background: linear-gradient(var(--world-sky) 18%, rgba(232, 239, 244, 0)); pointer-events: none; z-index: 1; }
+.world__stage::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 120px; background: linear-gradient(var(--world-sky) 18%, rgba(232, 239, 244, 0)); pointer-events: none; z-index: 1; transition: height .28s ease; }
+/* панели скрыты: дымка только под верхними пилюлями, облако и дальняя часть фермы не бледнеют */
+.world.is-bare .world__stage::after { height: 44px; }
 .world[data-site="south"] .world__stage::after { background: linear-gradient(var(--world-sky) 18%, rgba(241, 233, 218, 0)); }
 .world[data-mode="poster"] .world__canvas, .world[data-mode="fallback"] .world__canvas { pointer-events: none; }
 
@@ -377,6 +379,12 @@ pre { margin: 0; font: inherit; white-space: pre-wrap; }
 .dt-plates li .grow { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dt-plates time { font-family: var(--font-mono); color: var(--ink-3); }
 .dt-plate-big { margin-top: 12px; }
+.dt-path { list-style: none; display: grid; gap: 7px; counter-reset: dtp; }
+.dt-path li { display: flex; align-items: center; gap: 9px; font-size: var(--t-13); color: var(--ink-2); line-height: 1.3; }
+.dt-path li::before { counter-increment: dtp; content: counter(dtp); display: grid; place-items: center; flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--green-soft); color: var(--green); font: 600 var(--t-11)/1 var(--font-mono); }
+.dt-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: var(--t-13); font-weight: 600; color: var(--green); text-decoration: none; }
+.dt-link .i { width: 16px; height: 16px; }
+.dt-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 /* путь сотрудника */
 .hud__timeline { grid-area: timeline; align-self: end; justify-self: start; width: min(700px, 100%); padding: 14px 16px; display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 16px; align-items: center; }
@@ -443,7 +451,12 @@ pre { margin: 0; font: inherit; white-space: pre-wrap; }
 .hud__toast.is-on { opacity: 1; transform: none; }
 .hud__toast .tg-note__app { color: var(--ice-ink); }
 .hud__toast pre { font-size: var(--t-13); line-height: 1.45; margin-top: 4px; }
-.hud__hint { position: absolute; z-index: 4; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 10px 14px; font-size: var(--t-14); font-weight: 500; pointer-events: none; text-align: center; max-width: calc(100% - 40px); }
+/* короткая подсказка — по центру свободной части сцены, у её нижнего края (не на выбранном объекте) */
+.hud__hint {
+  position: absolute; z-index: 7; left: calc(var(--free-l, 0px) + (100% - var(--free-l, 0px) - var(--free-r, 0px)) / 2); bottom: calc(var(--free-b, 0px) + 12px);
+  transform: translateX(-50%); width: max-content; padding: 10px 14px; font-size: var(--t-14); font-weight: 500; pointer-events: none; text-align: center;
+  max-width: min(520px, calc(100% - var(--free-l, 0px) - var(--free-r, 0px) - 24px)); background: var(--glass-strong);
+}
 .hud__demo-note {
   align-self: end; justify-self: end; z-index: 3; margin: 0; padding: 5px 10px; border-radius: 999px;
   background: rgba(255, 255, 255, .9); border: 1px solid var(--glass-line); box-shadow: var(--shadow-1);
@@ -454,6 +467,133 @@ pre { margin: 0; font: inherit; white-space: pre-wrap; }
 .hud__paused > span { display: grid; line-height: 1.3; }
 .hud__paused > span b { font-size: var(--t-15); }
 .hud__paused > span span { font-size: var(--t-12); color: var(--ink-3); }
+
+/* «Попробуйте сами»: сценарии демо — стеклянная строка того же вида, что кнопки вида */
+.hud > .hud__try { grid-area: open; align-self: start; justify-self: start; z-index: 3; display: flex; align-items: center; gap: 2px; max-width: calc(100% - 56px); padding: 4px; border-radius: 13px; }
+.try__title { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 0 6px 0 7px; font-size: var(--t-13); font-weight: 650; color: var(--green); white-space: nowrap; }
+.try__title .i { width: 18px; height: 18px; }
+.try__sep { flex: none; width: 1px; height: 22px; margin: 0 4px; background: var(--line); }
+.try__list { display: flex; gap: 2px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; scroll-padding-inline: 4px; }
+.try__list::-webkit-scrollbar { display: none; }
+.try__list.is-more { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 30px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 30px), transparent); }
+.try__list.is-more.is-scrolled { -webkit-mask-image: linear-gradient(90deg, transparent, #000 30px, #000 calc(100% - 30px), transparent); mask-image: linear-gradient(90deg, transparent, #000 30px, #000 calc(100% - 30px), transparent); }
+.try__list.is-scrolled:not(.is-more) { -webkit-mask-image: linear-gradient(90deg, transparent, #000 30px); mask-image: linear-gradient(90deg, transparent, #000 30px); }
+.try-chip {
+  position: relative; isolation: isolate; overflow: hidden; flex: none;
+  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 11px 0 9px;
+  border: 0; border-radius: 9px; background: transparent; color: var(--ink-2);
+  font-size: var(--t-13); font-weight: 600; white-space: nowrap;
+}
+.try-chip .i { width: 18px; height: 18px; color: var(--green); }
+.try-chip:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--veil); color: var(--ink); }
+.try-chip:focus-visible { outline-offset: -2px; }
+/* ход сценария: зелёная полоска вдоль нижнего края кнопки */
+.try-chip::before, .try__toggle::before { content: ""; position: absolute; z-index: 1; left: 0; right: 0; bottom: 0; height: 3px; background: var(--green); transform-origin: 0 50%; transform: scaleX(var(--p, 0)); opacity: 0; }
+.try-chip.is-running { background: var(--green-soft); color: var(--green); cursor: default; }
+.try-chip.is-running::before, .try__toggle.is-running::before { opacity: 1; }
+.try-chip:disabled { opacity: .45; cursor: default; }
+.hud__try.is-loading .try-chip { opacity: .55; cursor: progress; }
+.try-chip__short { display: none; }
+/* пройденный сценарий: галочка справа */
+.try-chip__done { width: 16px !important; height: 16px !important; margin-left: auto; flex: none; color: var(--green); }
+.try__count { flex: none; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--green-soft); color: var(--green); font-size: var(--t-11); font-weight: 650; line-height: 1.5; white-space: nowrap; }
+/* что сейчас происходит в сценарии */
+.try__hint { margin: 0; font-size: var(--t-12); line-height: 1.35; color: var(--ink-2); font-weight: 500; }
+/* после всех пяти сценариев — ссылка на заявку */
+.try__cta { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0 5px; padding: 7px 10px 6px; border-radius: 9px; font-size: var(--t-12); line-height: 1.35; color: var(--ink-2); text-decoration: none; flex: none; }
+.try__cta b { display: inline-flex; align-items: center; gap: 4px; color: var(--green); font-weight: 650; }
+.try__cta .i { width: 14px; height: 14px; }
+.try__cta:hover b { text-decoration: underline; text-underline-offset: 3px; }
+
+/* кнопка «Попробуйте сами» (планшет, низкий экран ноутбука): список сценариев открывается под ней */
+.try__toggle { display: none; position: relative; isolation: isolate; overflow: hidden; align-items: center; gap: 7px; height: 34px; padding: 0 9px 0 8px; border: 0; border-radius: 9px; background: transparent; color: var(--green); font-size: var(--t-13); font-weight: 650; white-space: nowrap; }
+.try__toggle .i { width: 18px; height: 18px; flex: none; }
+.try__toggle .try__count { margin-left: 0; }
+.try__toggle .try__chev { width: 15px; height: 15px; color: var(--ink-3); transition: transform .2s ease; }
+.try__toggle[aria-expanded="true"] .try__chev { transform: rotate(180deg); }
+.try__toggle:hover { background: var(--veil); }
+.try__toggle.is-running { background: var(--green-soft); }
+.try__toggle-label { overflow: hidden; text-overflow: ellipsis; }
+.hud[data-try="pill"] > .hud__try { position: relative; padding: 3px; }
+.hud[data-try="pill"] .try__toggle { display: inline-flex; max-width: 100%; }
+.hud[data-try="pill"] .try__title, .hud[data-try="pill"] .try__sep { display: none; }
+.hud[data-try="pill"] .try__list { display: none; }
+.hud[data-try="pill"] > .hud__try.is-open .try__list {
+  display: flex; flex-direction: column; position: absolute; z-index: 6; top: calc(100% + 6px); left: 0; width: 262px; padding: 6px; overflow: visible;
+  border-radius: 14px; border: 1px solid var(--glass-line); background: var(--glass-solid); box-shadow: var(--shadow-2); -webkit-mask-image: none; mask-image: none;
+}
+.hud[data-try="pill"] .try-chip { width: 100%; }
+.hud[data-try="pill"] .hud__try > .try__hint { position: absolute; top: calc(100% + 6px); left: 0; width: max-content; max-width: min(340px, calc(100vw - 60px)); padding: 7px 11px; border-radius: 11px; border: 1px solid var(--glass-line); background: var(--glass-solid); box-shadow: var(--shadow-1); }
+.hud[data-try="pill"] .hud__try.is-open > .try__hint { display: none; }
+
+/* большой экран: сценарии столбиком под сводкой, над деревьями у края фермы */
+.hud[data-try="column"] > .hud__try { flex-direction: column; align-items: stretch; width: 252px; padding: 6px; border-radius: 14px; }
+.hud[data-try="column"] .try__title { padding: 5px 8px 7px; }
+.hud[data-try="column"] .try__sep { display: none; }
+.hud[data-try="column"] .try__list { flex-direction: column; overflow: visible; }
+.hud[data-try="column"] .try-chip { width: 100%; }
+.hud[data-try="column"] .try__list > .try__hint { padding: 3px 10px 7px 35px; }
+.hud[data-try="column"] .try__cta { margin-top: 4px; border-top: 1px solid var(--line); border-radius: 0 0 9px 9px; padding-top: 9px; }
+@media (max-height: 760px) {
+  .hud[data-try="column"] .try-chip { height: 30px; }
+  .hud[data-try="column"] .try__title { padding: 3px 8px 5px; }
+}
+
+/* строка (телефон; панели скрыты): подпись сценария — отдельной плашкой над кнопками */
+.hud > .try__hint { position: absolute; z-index: 5; left: 50%; bottom: 66px; transform: translateX(-50%); width: max-content; max-width: min(680px, calc(100% - 28px)); padding: 8px 12px; border-radius: 12px; border: 1px solid var(--glass-line); background: var(--glass-solid); box-shadow: var(--shadow-1); text-align: center; pointer-events: none; }
+
+/* пилюля «Показать панели» рядом с кнопками вида, когда панели скрыты */
+.hud > .hud__show {
+  position: absolute; z-index: 4; top: 14px; right: 14px;
+  display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 15px 0 12px;
+  border-radius: 999px; font-size: var(--t-13); font-weight: 600; color: var(--ink);
+}
+.hud__show .i { width: 18px; height: 18px; color: var(--green); }
+.hud__show:hover { background: var(--glass-strong); }
+
+/* подсказка у курсора: название и состояние объекта */
+.hud-tip {
+  position: absolute; z-index: 8; left: 0; top: 0; width: max-content; max-width: min(300px, calc(100% - 24px));
+  padding: 7px 11px; border-radius: 11px; box-shadow: var(--shadow-2);
+  font-size: var(--t-13); line-height: 1.35; color: var(--ink-2); pointer-events: none; will-change: transform;
+}
+.hud-tip b { color: var(--ink); font-weight: 650; }
+.hud-tip .plate { vertical-align: -3px; margin-inline: 3px 1px; }
+.hud-tip .tip-ok { color: var(--green); font-weight: 600; }
+.hud-tip .tip-bad { color: var(--red); font-weight: 600; }
+.hud-tip .tip-sub { display: block; margin-top: 1px; font-size: var(--t-12); }
+
+/* сцена в фокусе клавиатуры */
+.world.is-kbd-focus { box-shadow: 0 0 0 3px rgba(31, 122, 63, .45), var(--shadow-1); }
+.world.is-wheel .world__canvas { cursor: grab; }
+
+/* панели скрыты: стекло уходит, на сцене остаются кнопки вида, сценарии и пометка «Демо» */
+.hud__top, .hud__kpis, .hud__detail, .hud__timeline, .hud__feed { transition: opacity .28s ease, translate .28s ease; }
+.hud.is-bare .hud__top, .hud.is-bare .hud__kpis { opacity: 0; translate: 0 -14px; }
+.hud.is-bare .hud__detail, .hud.is-bare .hud__feed { opacity: 0; translate: 18px 0; }
+.hud.is-bare .hud__timeline { opacity: 0; translate: 0 14px; }
+.hud.is-bare :is(.hud__top, .hud__kpis, .hud__detail, .hud__timeline, .hud__feed),
+.hud.is-bare :is(.hud__top, .hud__kpis, .hud__detail, .hud__timeline, .hud__feed) * { pointer-events: none !important; }
+.hud.is-gone :is(.hud__top, .hud__kpis, .hud__detail, .hud__timeline, .hud__feed) { visibility: hidden !important; }
+.hud.is-bare .hud__toast { top: 52px; left: 14px; background: var(--glass-solid); }
+.hud.is-bare .hud__controls { top: 62px; right: 14px; }
+/* без grid-area абсолютный элемент отсчитывается от всей сцены, а не от своей ячейки сетки */
+.hud.is-bare > .hud__try, .hud.is-bare > .hud__demo-note { grid-area: auto; position: absolute; }
+/* строка сценариев — внизу по центру, пометка «Демо» — слева вверху */
+.hud.is-bare > .hud__try { top: auto; bottom: 14px; left: 14px; right: 14px; width: max-content; max-width: calc(100% - 28px); margin-inline: auto; }
+.hud.is-bare > .hud__demo-note { top: 14px; left: 14px; right: auto; bottom: auto; margin: 0; }
+
+/* во весь экран */
+.world:fullscreen { height: 100%; max-width: none; min-height: 0; margin: 0; border: 0; border-radius: 0; }
+.world:-webkit-full-screen { height: 100%; max-width: none; min-height: 0; margin: 0; border: 0; border-radius: 0; }
+.world::backdrop { background: var(--bg); }
+
+/* ночь: подложка и дымка сверху под цвет ночной сцены */
+.world:is(.is-night, .wants-night) { --world-sky: #0f1828; --world-ground: #141d2c; }
+.world:is(.is-night, .wants-night)[data-site="south"] { --world-sky: #141b28; }
+.world:is(.is-night, .wants-night) .world__stage::after { background: linear-gradient(var(--world-sky) 18%, rgba(15, 24, 40, 0)); }
+.world:is(.is-night, .wants-night)[data-site="south"] .world__stage::after { background: linear-gradient(var(--world-sky) 18%, rgba(20, 27, 40, 0)); }
+.world.wants-night .world__poster-img img { filter: brightness(.45) saturate(.6); }
 
 /* запасная иллюстрация (без WebGL) */
 .farm-svg { width: 100%; height: 100%; display: block; user-select: none; -webkit-user-select: none; }
@@ -961,6 +1101,48 @@ pre { margin: 0; font: inherit; white-space: pre-wrap; }
   .field-row { grid-template-columns: minmax(0, 1fr); }
   .site-footer__grid { grid-template-columns: minmax(0, 1fr); }
   .outage__line li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+/* строка сценариев, пилюля «Показать панели», панели скрыты */
+@media (min-width: 761px) {
+  /* пометка «Демо» не заезжает под столбик кнопок вида на невысоких экранах */
+  .hud > .hud__demo-note { margin-right: 54px; }
+  .hud.is-bare > .hud__demo-note { margin-right: 0; }
+  /* уведомление выезжает поверх сводки (как баннер на телефоне), а не на ферму и не на сценарии */
+  .world.has-try .hud__toast { top: 82px; background: var(--glass-solid); }
+  .world.has-try .hud.is-bare .hud__toast { top: 52px; }
+}
+@media (min-width: 761px) and (max-width: 1080px) {
+  .try__title { padding-inline: 6px 2px; }
+}
+@media (max-width: 760px) {
+  .world.has-try { height: 668px; }
+  .world.has-try:fullscreen { height: 100%; margin-inline: 0; }
+  .world.has-try:-webkit-full-screen { height: 100%; margin-inline: 0; }
+  .hud > .hud__try { justify-self: stretch; max-width: none; padding: 3px; }
+  .try__title { padding-inline: 6px 2px; font-size: var(--t-12); }
+  .try__title .i { width: 16px; height: 16px; }
+  .try__sep { margin: 0 3px; }
+  .try-chip { height: 34px; padding: 0 10px 0 8px; gap: 6px; scroll-snap-align: start; }
+  /* на телефоне: от заголовка остаётся значок, у кнопок — короткие подписи; строка листается по кнопкам */
+  .try__title-text, .try-chip__label { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .try-chip__short { display: inline; }
+  .try__title { padding-inline: 7px 1px; }
+  .try__title .i { width: 18px; height: 18px; }
+  .try__count { margin-left: 4px; padding: 1px 6px; }
+  .try__list { scroll-snap-type: x mandatory; }
+  .try__cta { scroll-snap-align: start; white-space: nowrap; padding-block: 0; height: 34px; }
+  .hud > .try__hint { left: 10px; right: 10px; bottom: 112px; transform: none; width: auto; max-width: none; text-align: left; }
+  .hud.is-bare > .try__hint { bottom: 104px; }
+  .world.has-try .hud:not(.is-bare) > .hud__demo-note { align-self: start; margin: 50px 0 0; }
+  .world.has-try .hud__toast { top: 68px; left: 10px; width: calc(100% - 20px); background: var(--glass-solid); }
+  .world.has-try .hud.is-bare .hud__toast { top: 88px; }
+  .hud__detail { transition: transform .3s ease, opacity .28s ease, translate .28s ease; }
+  .hud.is-bare .hud__detail { translate: 0 18px; }
+  .hud.is-bare .hud__feed { translate: 0 18px; }
+  .hud > .hud__show { top: auto; bottom: 58px; right: 10px; height: 38px; padding: 0 13px 0 11px; }
+  .hud.is-bare .hud__controls { top: auto; bottom: 10px; right: 10px; }
+  .hud.is-bare > .hud__try { top: 10px; bottom: auto; left: 10px; right: 10px; width: auto; max-width: none; margin: 0; }
+  .hud.is-bare > .hud__demo-note { top: 58px; left: 10px; margin: 0; }
 }
 @media (max-width: 600px) {
   .kpi__long { display: none; }

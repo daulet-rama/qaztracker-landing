@@ -1,30 +1,74 @@
 // QazTracker Vision — 3D farm scene (Three.js, procedural, no external models).
 //
-// export async function createFarmScene(canvas, { onSelect, onEvent, onReady, quality, reducedMotion }) → FarmScene
+// export async function createFarmScene(canvas, opts) → FarmScene
+//   opts = { onSelect(id|null), onEvent(evt), onReady(api), quality: 'high'|'low', reducedMotion,
+//            onHover?(id|null, clientX, clientY, { anchorX, anchorY }),   // hover tooltips (see below)
+//            onScenario?({ id, phase: 'start'|'progress'|'command'|'done'|'cancel', progress, duration, onSiteDelta, vehiclesInside }),
+//            // 'command' (feed-door only): the door has just opened by the remote command → { objectId, ms }
+//            onWheelLimit?() }             // the wheel reached its zoom-out limit (see enableWheelZoom)
 //
 // FarmScene = {
 //   objects,                      // getter: objects of the current site [{ id, kind, name, site, subtitle, plate? }]
 //   site, sites,                  // current site id, site descriptions
-//   setSite(siteId) → Promise,    // camera fly-to + weather change; clears the selection
+//   setSite(siteId) → Promise,    // camera fly-to + weather change; clears the selection; cancels a running scenario
 //   select(objectId | null),      // frame + corner brackets + floating label (null clears)
 //   openDoor('checkpoint'|'feed'|'office') → Promise<{ ms }>,
-//   zoomBy(step), rotateBy(deg), resetView(), setPaused(paused), dispose(),
-//   setViewInsets({ top, right, bottom, left, avoid? } | null, { animate }),  // px covered by the app's panels;
+//   zoomBy(step, { nudge }?), rotateBy(deg, { nudge }?),  // buttons: a short flight; { nudge: true }: smooth, adds up
+//   resetView(), setPaused(paused), dispose(),
+//   setViewInsets({ top, right, bottom, left, avoid?, labelTop? } | null, { animate }),  // px covered by the app's panels;
 //                                 // the overview and the selected object are framed in the rest;
 //                                 // avoid: [{ x0, y0, x1, y1 }] small panels inside that area labels keep clear of
+//                                 // (a tall one at its left or right edge also keeps a scenario's place clear);
+//                                 // labelTop: px from the top edge that labels stay below (only labels, not the framing);
+//                                 // all zeros (panels hidden) frames the farm on the whole canvas
 //   tourTo(objectId, { dist, dur }) → Promise,  // optional auto-tour: medium shot of an object, no selection;
-//                                 // resetView() brings the camera home
+//                                 // resetView() brings the camera home; refused (false) while a scenario runs
+//
+//   --- «Попробуйте сами»
+//   scenarios,                    // getter: [{ id, title, hint, duration (s), sites: ['north','south'], available }]
+//   scenario,                     // getter: the running one { id, title, progress 0..1, elapsed, duration } or null
+//   runScenario('face'|'milk-truck'|'unknown-car'|'perimeter'|'feed-door') → Promise<{ id, ms? }>
+//                                 // camera flies to the place and the scenario plays now: the 90 s loop jumps to the
+//                                 // moment just before it (actors that move pop in softly), events reach onEvent as
+//                                 // usual, then the loop simply continues (no extra actors, nothing overlaps).
+//                                 // 'feed-door' sends the remote «open» command (same as openDoor('feed')) and
+//                                 // resolves with { ms }; log it in the journal as a command from the app.
+//                                 // Rejects (err.code): 'busy' (one is running or the site is changing),
+//                                 // 'paused' (demo paused: unpause first), 'unknown', 'cancelled' (site switch/dispose).
+//                                 // onScenario 'start' carries onSiteDelta: add it to the people-on-site counter
+//                                 // (the jump skips or repeats checkpoint passes), and vehiclesInside: ids inside now.
+//
+//   --- night
+//   setNight(on), night,          // lit windows, lamps with pools of light, headlights, IR cones; only lights change
+//
+//   --- hover, free camera
+//   onHover (option above)        // called when the hovered object changes and while the pointer moves over it;
+//                                 // the scene draws a soft glow over the hovered object and sets the pointer cursor;
+//                                 // with onHover the built-in 3D hover label is off (the app shows its own tooltip)
+//   objectInfo(id) → { id, kind, name, site, tooltip: { title, text }, … }   // live data for tooltips and cards:
+//                                 // points: status 'ok'|'alarm', door 'open'|'closed', sinceLoad counters;
+//                                 // people: role, schedule, tab, doing, lastPass; vehicles: plate, list, listText,
+//                                 // doing, onSite, lastPass { direction, result, time }
+//   focusPoint(clientX, clientY) → Promise<{ id } | { point } | null>   // double-click: fly to the object or spot
+//   panBy(dx, dz),                // smooth pan in metres: dx to the right of the screen, dz away from the viewer
+//   enableWheelZoom(on),          // plain mouse wheel zooms (towards the pointer); off: only Ctrl/⌘ + wheel.
+//                                 // Zooming out with it stops at 1.2 × the overview distance; one more turn down
+//                                 // scrolls the page and calls opts.onWheelLimit() (the app turns the wheel off).
+//                                 // A turn during a camera flight stops the flight instead of scrolling the page.
+//   setKeyboardEnabled(on, target?)  // keys on target (default: the canvas, gets tabindex 0): arrows/WASD pan,
+//                                 // Q/E rotate, +/− zoom, Esc deselects. H, N, F and the rest stay with the app.
 // }
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
-  createMaterials, LabelCanvas, pinTexture, dotTexture, glowRectTexture,
+  createMaterials, LabelCanvas, pinTexture, dotTexture, glowRectTexture, beamTexture, poolTexture, glowOverlayMaterial,
   ALARM, clamp, lerp, smooth, easeInOut, easeOut,
 } from './scene-kit.js';
-import { buildWorld, buildSite, SITE_ORIGINS, makeAoTexture } from './scene-world.js';
-import { createActors, PEOPLE, VEHICLES, plateOf } from './scene-actors.js';
+import { buildWorld, buildSite, SITE_ORIGINS, makeAoTexture, bulbMaterial, L as LAYOUT } from './scene-world.js';
+import { createActors, PEOPLE, VEHICLES, VEHICLE_LAMPS, plateOf } from './scene-actors.js';
 import { createSimulation, LOOP } from './scene-sim.js';
+import { SITE as SITE_DATA } from './config.js';
 
 const SITE_INFO = {
   north: { id: 'north', name: 'Ферма «Север»', temperature: -32, weather: 'Снег, мороз' },
@@ -42,6 +86,34 @@ const ENV = {
     sun: '#FFE9CA', sunI: 3.6, sunDir: new THREE.Vector3(-44, 80, 56), env: 0.3, exposure: 1.05, snow: 0,
   },
 };
+
+// Night: moonlight from the same direction (the same shadows), a dark sky, little fill light. Snow stays pale blue.
+const ENV_NIGHT = {
+  north: { bg: '#0C1424', hemiSky: '#5F78AE', hemiGround: '#151C2B', hemi: 0.28, sun: '#9FB6E6', sunI: 0.55, env: 0.05, exposure: 0.95 },
+  south: { bg: '#0F1725', hemiSky: '#566AA2', hemiGround: '#1A1F2C', hemi: 0.24, sun: '#97ABDD', sunI: 0.42, env: 0.05, exposure: 0.95 },
+};
+
+// «Попробуйте сами». key: the sim moment the scenario is built around (lead s before it, tail s after it);
+// shot: first guess of the camera target [x, z] (site-local), azimuth, polar angle, closest distance;
+// frame: what must be in view, fitted into the free part of the canvas — [x, y, z, pxUp, pxSide] like FRAME_WIDE.
+const SCENARIOS = [
+  { id: 'face', title: 'Сотрудник проходит по лицу', hint: 'Терминал узнаёт сотрудника, турникет открывается, проход попадает в журнал и табель',
+    key: 'face:worker-1:checkpoint', actor: 'worker-1', lead: 5.6, tail: 3.6, shot: { at: [10, 38.5], az: 0.55, polar: 0.97, min: 30 },
+    frame: [[2.2, 0, 32.6, 0, 6], [2.2, 3.6, 39.6, 0, 6], [13, 3.4, 32.6, 0, 6], [13, 0, 40, 0, 6], [16.5, 0, 43.4, 0, 10], [9.6, 4.5, 38.4, 58, 110]] },
+  { id: 'milk-truck', title: 'Молоковоз на въезде', hint: 'Камера читает номер, он в белом списке, шлагбаум открывается сам',
+    key: 'plate:milk-truck:in', actor: 'milk-truck', lead: 5.4, tail: 6.4, shot: { at: [-26, 43.5], az: 0.66, polar: 0.97, min: 36 },
+    frame: [[-35, 0, 30.5, 0, 6], [-17, 4.6, 31.4, 0, 6], [-44, 0, 57.5, 0, 6], [-12, 0, 57.5, 0, 6], [-24, 6.4, 43.7, 58, 110]] },
+  { id: 'unknown-car', title: 'Чужая машина', hint: 'Номера нет в списке: шлагбаум остаётся закрытым, машина разворачивается',
+    key: 'plate:unknown-car:in', actor: 'unknown-car', lead: 5.0, tail: 7.6, shot: { at: [-26, 44.5], az: 0.66, polar: 0.97, min: 36 },
+    frame: [[-35, 0, 30.5, 0, 6], [-17, 4.6, 31.4, 0, 6], [-42, 0, 57.5, 0, 6], [-12, 0, 57.5, 0, 6], [-24, 4.4, 41.5, 58, 110]] },
+  { id: 'perimeter', title: 'Тревога на периметре', hint: 'Лиса пересекает линию у забора, камера поднимает тревогу',
+    key: 'perimeter', actor: 'fox', lead: 4.4, tail: 5.6, shot: { at: [52, -10], az: 0.62, polar: 0.95, min: 40 },
+    frame: [[40, 0, -20, 0, 6], [40, 0, 18, 0, 6], [68, 0, -24, 0, 10], [53, 5.4, 22, 0, 8], [51, 3.3, -8, 58, 110]] },
+  { id: 'feed-door', title: 'Открыть дверь склада', hint: 'Команда из приложения идёт через облако на процессор, дверь открывается',
+    command: 'feed', duration: 6.8, shot: { at: [30, -12], az: 0.5, polar: 0.97, min: 36 },
+    frame: [[22, 0, -11, 0, 6], [38, 0, -11, 0, 6], [30, 8.6, -20, 0, 6], [30, 0, -3, 0, 6], [34.3, 2, -10, 30, 40]] },
+];
+const scenarioError = (code, msg) => Object.assign(new Error(msg), { code });
 
 const HOME = { az: 0.74, polar: 0.93, azTall: 0.25, polarTall: 0.74, offset: new THREE.Vector3(4, 0, 6) };
 
@@ -109,6 +181,9 @@ function webgl2Available() {
 
 export async function createFarmScene(canvas, opts = {}) {
   const { onSelect = () => {}, onEvent = () => {}, onReady = () => {} } = opts;
+  const onHover = typeof opts.onHover === 'function' ? opts.onHover : null;
+  const onScenario = typeof opts.onScenario === 'function' ? opts.onScenario : null;
+  const safeCall = (fn, ...args) => { try { fn(...args); } catch (e) { console.error(e); } };
   const quality = opts.quality === 'low' ? 'low' : 'high';
   const RM = !!opts.reducedMotion;
   if (!canvas) throw new Error('createFarmScene: canvas is required');
@@ -191,6 +266,44 @@ export async function createFarmScene(canvas, opts = {}) {
   }
   const sims = { north: createSimulation('north'), south: createSimulation('south') };
   let sim = sims.north;
+
+  // ---------------------------------------------------------------- night rigs on vehicles: headlights on the road + lamp dots
+  const beamTex = beamTexture();
+  const bulbTex = poolTexture(64);
+  const beamMatV = new THREE.MeshBasicMaterial({
+    map: beamTex, color: '#FFE6B5', transparent: true, opacity: 0, depthWrite: false, toneMapped: false,
+    blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  });
+  const vehBulbMat = bulbMaterial(bulbTex);
+  const nightRigs = [];
+  for (const [id, lamps] of Object.entries(VEHICLE_LAMPS)) {
+    const a = actors[id];
+    if (!a) continue;
+    const rig = new THREE.Group();
+    rig.name = 'headlights';
+    rig.visible = false;
+    const len = 13, wid = 6.6, x0 = lamps.beamFrom ?? lamps.front[0] + 0.15;
+    const g = new THREE.PlaneGeometry(len, wid);
+    g.rotateX(-Math.PI / 2);
+    g.translate(x0 + len / 2, 0.1, 0);
+    const beamMesh = new THREE.Mesh(g, beamMatV);
+    beamMesh.renderOrder = 3;
+    rig.add(beamMesh);
+    const pts = [], cols = [], sizes = [];
+    const [fx, fy, fz] = lamps.front;
+    for (const s of [-1, 1]) { pts.push(fx, fy, s * fz); cols.push(1, 0.95, 0.82); sizes.push(1.25); }
+    if (lamps.tail) { const [tx, ty, tz] = lamps.tail; for (const s of [-1, 1]) { pts.push(tx, ty, s * tz); cols.push(1, 0.25, 0.25); sizes.push(0.75); } }
+    const bg = new THREE.BufferGeometry();
+    bg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    bg.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+    bg.setAttribute('aSize', new THREE.Float32BufferAttribute(sizes, 1));
+    const bp = new THREE.Points(bg, vehBulbMat);
+    bp.frustumCulled = false;
+    bp.renderOrder = 10;
+    rig.add(bp);
+    a.root.add(rig);
+    nightRigs.push(rig);
+  }
 
   // ---------------------------------------------------------------- per-site extras: pins, proxies, cloud label, uplink
   const linkUniforms = { uTime: { value: 0 }, uColor: { value: new THREE.Color('#2BB673') } };
@@ -359,6 +472,52 @@ export async function createFarmScene(canvas, opts = {}) {
   labelSprites.push(hoverLabel.sprite);
   fxRoot.add(selLabel.sprite, hoverLabel.sprite);
 
+  // hover glow: an additive rim-lit copy of the hovered object's own geometry, drawn over it (materials stay as they are)
+  const hoverMat = glowOverlayMaterial('#5CF0A8');
+  const glow = { id: null, key: '', meshes: [], k: 0, cache: new Map() };
+  const MOVING_PARTS = { gate: ['barrier'], checkpoint: ['turnstile'], feed: ['feedDoor'], office: ['officeDoor'] };
+  function overlayChildren(root, out) {
+    const src = [];
+    root.traverse((o) => { if (o.isMesh && !o.userData.isGlow && o.geometry && o.geometry.attributes.normal && !o.isInstancedMesh) src.push(o); });
+    for (const m of src) {
+      const gm = new THREE.Mesh(m.geometry, hoverMat);
+      gm.userData.isGlow = true;
+      gm.renderOrder = 12;
+      gm.visible = false;
+      gm.raycast = () => {};
+      m.add(gm);
+      out.push(gm);
+    }
+  }
+  function glowMeshes(id) {
+    const key = (VEHICLES[id] || PEOPLE[id] ? 'actor' : state.site) + ':' + id;
+    if (glow.cache.has(key)) return glow.cache.get(key);
+    const out = [];
+    const a = actors[id];
+    if (a && a.kind !== 'animal') overlayChildren(a.body, out);
+    else {
+      const s = currentSite();
+      const geo = s.hl && s.hl[id];
+      if (geo) {
+        const m = new THREE.Mesh(geo, hoverMat);
+        m.userData.isGlow = true; m.renderOrder = 12; m.visible = false; m.raycast = () => {};
+        s.group.add(m);
+        out.push(m);
+      }
+      for (const p of MOVING_PARTS[id] || []) if (s.parts[p]) overlayChildren(s.parts[p], out);
+    }
+    glow.cache.set(key, out);
+    return out;
+  }
+  function setGlow(id) {
+    if (id === glow.id) return;
+    for (const m of glow.meshes) m.visible = false;
+    glow.id = id; glow.meshes = id ? glowMeshes(id) : []; glow.k = 0;
+    for (const m of glow.meshes) m.visible = true;
+    hoverMat.uniforms.uAlpha.value = 0;
+    requestRender();
+  }
+
   // ---------------------------------------------------------------- snow
   const SNOW_N = quality === 'low' ? 900 : 2600;
   const snowGeo = new THREE.BufferGeometry();
@@ -397,10 +556,45 @@ export async function createFarmScene(canvas, opts = {}) {
   scene.add(snowPts);
 
   // ---------------------------------------------------------------- controls
-  // The mouse wheel scrolls the page; the scene zooms only with Ctrl / Cmd (and trackpad pinch, which sends ctrlKey).
-  const onWheelGuard = (e) => { if (!(e.ctrlKey || e.metaKey)) e.stopImmediatePropagation(); };
-  canvas.addEventListener('wheel', onWheelGuard, { passive: true });
+  // The mouse wheel scrolls the page; the scene zooms only with Ctrl / Cmd (and trackpad pinch, which sends ctrlKey),
+  // or with the plain wheel once the app has called enableWheelZoom(true).
+  // With the plain wheel on, zooming out stops a little beyond the overview (1.2 × its distance): one more turn
+  // down from there goes to the page (it scrolls) and opts.onWheelLimit() tells the app to give the wheel back.
+  // A turn of the wheel during a camera flight takes the camera (the flight stops where it is) and never
+  // scrolls the page; during a farm switch (an arc flight) the turn is simply swallowed.
+  let wheelZoom = false, wheelOut = false, homeDistCache = 0;
+  const onWheelLimit = typeof opts.onWheelLimit === 'function' ? opts.onWheelLimit : null;
+  const wheelCap = () => { if (!homeDistCache) homeDistCache = homeView(state.site).dist; return homeDistCache * 1.2; };
+  const onWheelGuard = (e) => {
+    const plain = !(e.ctrlKey || e.metaKey);
+    wheelOut = false;
+    if (plain && !wheelZoom) { e.stopImmediatePropagation(); return; }
+    if (state.flight) {
+      e.preventDefault();
+      if (state.flight.arc) { e.stopImmediatePropagation(); return; }
+      cancelFlight();
+    }
+    if (plain && e.deltaY > 0) {
+      if (camera.position.distanceTo(controls.target) >= wheelCap() - 0.5) {
+        // already as far out as the wheel goes: this turn scrolls the page, and the wheel goes back to the page
+        e.stopImmediatePropagation();
+        if (onWheelLimit) safeCall(onWheelLimit);
+        return;
+      }
+      wheelOut = true;
+    }
+  };
+  canvas.addEventListener('wheel', onWheelGuard, { passive: false });
   const controls = new OrbitControls(camera, canvas);
+  // runs after OrbitControls has applied the turn: a zoom-out never ends beyond the wheel's limit
+  const onWheelAfter = () => {
+    if (!wheelOut) return;
+    wheelOut = false;
+    const cap = wheelCap();
+    tmpV.copy(camera.position).sub(controls.target);
+    if (tmpV.length() > cap) { camera.position.copy(controls.target).add(tmpV.setLength(cap)); requestRender(); }
+  };
+  canvas.addEventListener('wheel', onWheelAfter, { passive: true });
   controls.enableDamping = !RM;
   controls.dampingFactor = 0.085;
   controls.minDistance = 26;
@@ -417,11 +611,15 @@ export async function createFarmScene(canvas, opts = {}) {
   // ---------------------------------------------------------------- state
   const state = {
     site: 'north', weather: 0, paused: false, disposed: false,
-    simTime: 0, lastLt: 0, selected: null, followId: null,
+    simTime: 0, loopOffset: 0, lastLt: 0, selected: null, followId: null,
     flight: null, alarms: new Map(), screens: new Map(), userDoors: {}, ledFlash: 0,
-    needsRender: true, hoverDirty: false,
+    needsRender: true, hoverDirty: false, lastPick: 0,
     atHome: true, selRadius: 0, selStatic: true,
+    night: false, nightK: 0, scenario: null, pop: {},
   };
+  const loopTime = () => (((state.simTime + state.loopOffset) % LOOP) + LOOP) % LOOP;
+  // what the scene itself emitted since load, per site: points (objectId) and actors (people, vehicles)
+  const stats = { north: { obj: {}, actor: {} }, south: { obj: {}, actor: {} } };
   const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3(), tmpS = new THREE.Spherical();
   const poseTmp = {};
   let viewW = 1, viewH = 1;
@@ -454,6 +652,7 @@ export async function createFarmScene(canvas, opts = {}) {
     const h = Math.max(1, canvas.clientHeight || canvas.parentElement?.clientHeight || 500);
     if (w === viewW && h === viewH) return;
     viewW = w; viewH = h;
+    homeDistCache = 0;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     if (userInsets && !curInsets) curInsets = { ...userInsets };
@@ -461,6 +660,10 @@ export async function createFarmScene(canvas, opts = {}) {
     if (state.atHome && !state.selected && !state.flight && state.homePlaced) refit(false);
     for (const sp of labelSprites) applyLabelScale(sp);
     snowMat.uniforms.uPR.value = renderer.getPixelRatio();
+    // world-sized night bulbs: device px per metre at distance 1
+    const px = (h * renderer.getPixelRatio()) / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+    for (const s of Object.values(sites)) s.night.bulbMaterial.uniforms.uPx.value = px;
+    vehBulbMat.uniforms.uPx.value = px;
     requestRender();
   }
   const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resize()) : null;
@@ -470,7 +673,8 @@ export async function createFarmScene(canvas, opts = {}) {
   // uncovered area (asymmetric frustum), so framing, selection and rotation all happen around that point.
   // userInsets is what the app asked for; curInsets eases towards it so panels opening and closing
   // (the phone's bottom sheet, for example) slide the picture instead of making it jump.
-  let userInsets = null, curInsets = null, avoidRects = [];
+  // labelTop: px from the top that labels keep clear of even when nothing covers it (the soft haze up there)
+  let userInsets = null, curInsets = null, avoidRects = [], labelTop = 0;
   const EDGES = ['top', 'right', 'bottom', 'left'];
   function defaultInsets() {
     const aspect = viewW / viewH;
@@ -509,7 +713,7 @@ export async function createFarmScene(canvas, opts = {}) {
   const edgeV = new THREE.Vector3();
   function keepLabelsInView() {
     const f = freeRect();
-    const lo = f.x0 + 6, hi = f.x0 + f.w - 6, top = f.y0 + 6;
+    const lo = f.x0 + 6, hi = f.x0 + f.w - 6, top = Math.max(f.y0, labelTop) + 6;
     camera.updateMatrixWorld();
     const k = viewW < 600 ? 0.82 : 1;
     const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
@@ -551,15 +755,18 @@ export async function createFarmScene(canvas, opts = {}) {
   const fitCam = new THREE.PerspectiveCamera();
   const fitV = new THREE.Vector3();
   // Smallest distance (and a re-centred target) at which every frame point lands inside the free rect.
-  function fitHome(siteId, az, polar, points) {
+  // start: first guess of the target (site-local); minDist: closest allowed shot.
+  // area: the part of the free rect the points must fit in (default: all of it); the camera offset stays the free rect's
+  function fitHome(siteId, az, polar, points, { start = HOME.offset, minDist = 50, area = null } = {}) {
     const f = freeRect(true);
     fitCam.copy(camera);
     fitCam.setViewOffset(viewW, viewH, viewW / 2 - f.cx, viewH / 2 - f.cy, viewW, viewH);
     fitCam.updateProjectionMatrix();
     const o = SITE_ORIGINS[siteId];
-    const target = o.clone().add(HOME.offset);
-    const m = Math.min(f.w, f.h) * 0.025 + 4;
-    const box = { x0: f.x0 + m, x1: f.x0 + f.w - m, y0: f.y0 + m, y1: f.y0 + f.h - m };
+    const target = o.clone().add(start);
+    const a = area || f;
+    const m = Math.min(a.w, a.h) * 0.025 + 4;
+    const box = { x0: a.x0 + m, x1: a.x0 + a.w - m, y0: a.y0 + m, y1: a.y0 + a.h - m };
     const tanV = Math.tan(THREE.MathUtils.degToRad(fitCam.fov) / 2);
     const bounds = (dist) => {
       tmpS.set(dist, polar, az);
@@ -576,7 +783,7 @@ export async function createFarmScene(canvas, opts = {}) {
       return { x0, x1, y0, y1 };
     };
     const fitsAt = (d) => { const b = bounds(d); return b.x1 - b.x0 <= box.x1 - box.x0 && b.y1 - b.y0 <= box.y1 - box.y0; };
-    const lo0 = Math.max(controls.minDistance, 50), hi0 = controls.maxDistance;
+    const lo0 = Math.max(controls.minDistance, minDist), hi0 = controls.maxDistance;
     let dist = hi0;
     for (let iter = 0; iter < 4; iter++) {
       let lo = lo0, hi = hi0;
@@ -661,6 +868,14 @@ export async function createFarmScene(canvas, opts = {}) {
       requestRender();
     });
   }
+  // the user took the camera (keys, pan, wheel): an unfinished flight stops where it is
+  function cancelFlight() {
+    const f = state.flight;
+    if (!f || f.arc) return;
+    state.flight = null;
+    controls.enabled = true;
+    f.resolve();
+  }
   function updateFlight(now) {
     const f = state.flight;
     if (!f) return;
@@ -681,22 +896,39 @@ export async function createFarmScene(canvas, opts = {}) {
   }
 
   // ---------------------------------------------------------------- weather / site
-  const envA = ENV.north, envB = ENV.south;
-  const cA = new THREE.Color(), cB = new THREE.Color();
+  const envA = ENV.north, envB = ENV.south, nightA = ENV_NIGHT.north, nightB = ENV_NIGHT.south;
+  const cA = new THREE.Color(), cB = new THREE.Color(), cN = new THREE.Color(), cN2 = new THREE.Color();
+  const cloudEmissive = mats.cloud.emissiveIntensity;
+  // w: north (0) → south (1) weather; state.nightK: day (0) → night (1)
   function applyWeather(w) {
     state.weather = w;
-    const mix = (a, b) => cA.set(a).lerp(cB.set(b), w);
-    scene.background.copy(mix(envA.bg, envB.bg));
+    const n = smooth(state.nightK);
+    const mix = (key) => cA.set(envA[key]).lerp(cB.set(envB[key]), w).lerp(cN.set(nightA[key]).lerp(cN2.set(nightB[key]), w), n);
+    const num = (key) => lerp(lerp(envA[key], envB[key], w), lerp(nightA[key], nightB[key], w), n);
+    scene.background.copy(mix('bg'));
     scene.fog.color.copy(scene.background);
-    hemi.color.copy(mix(envA.hemiSky, envB.hemiSky));
-    hemi.groundColor.copy(mix(envA.hemiGround, envB.hemiGround));
-    hemi.intensity = lerp(envA.hemi, envB.hemi, w);
-    sun.color.copy(mix(envA.sun, envB.sun));
-    sun.intensity = lerp(envA.sunI, envB.sunI, w);
-    scene.environmentIntensity = lerp(envA.env, envB.env, w);
-    renderer.toneMappingExposure = lerp(envA.exposure, envB.exposure, w);
-    snowMat.uniforms.uAlpha.value = clamp(1 - w * 1.6, 0, 1);
-    snowPts.visible = !RM && snowMat.uniforms.uAlpha.value > 0.01;
+    hemi.color.copy(mix('hemiSky'));
+    hemi.groundColor.copy(mix('hemiGround'));
+    hemi.intensity = num('hemi');
+    sun.color.copy(mix('sun'));
+    sun.intensity = num('sunI');
+    scene.environmentIntensity = num('env');
+    renderer.toneMappingExposure = num('exposure');
+    snowMat.uniforms.uAlpha.value = clamp(1 - w * 1.6, 0, 1) * (1 - 0.3 * n);
+    snowPts.visible = !RM && !perf.noSnow && snowMat.uniforms.uAlpha.value > 0.01;
+    // night lights: overlays only (no model changes); the cloud glows a little so it stays readable
+    for (const s of Object.values(sites)) s.night.set(n);
+    beamMatV.opacity = n * 0.85;
+    vehBulbMat.uniforms.uK.value = n;
+    for (const r of nightRigs) r.visible = n > 0.002;
+    mats.cloud.emissiveIntensity = lerp(cloudEmissive, 0.5, n);
+  }
+  function updateNight(dt) {
+    const goal = state.night ? 1 : 0;
+    if (state.nightK === goal) return false;
+    state.nightK = RM || dt <= 0 ? goal : clamp(state.nightK + Math.sign(goal - state.nightK) * dt / 1.1, 0, 1);
+    applyWeather(state.weather);
+    return true;
   }
   const sunCenter = new THREE.Vector3();
   function placeSun() {
@@ -717,6 +949,9 @@ export async function createFarmScene(canvas, opts = {}) {
     if (state.disposed) return;
     if (siteId === state.site && !state.flight) { state.atHome = true; await flyTo(homeView(siteId), { dur: 1.0 }); return; }
     const from = state.site;
+    if (state.scenario && siteId !== state.site) endScenario('cancel');
+    homeDistCache = 0;
+    setGlow(null);
     clearSelection();
     state.atHome = true;
     state.site = siteId;
@@ -839,11 +1074,14 @@ export async function createFarmScene(canvas, opts = {}) {
   // ---------------------------------------------------------------- picking
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
-  let pointer = { x: 0, y: 0, inside: false, down: null };
-  function pick(clientX, clientY) {
+  let pointer = { x: 0, y: 0, inside: false, down: null, dragging: false, touch: false, sentX: NaN, sentY: NaN };
+  function setRay(clientX, clientY) {
     const r = canvas.getBoundingClientRect();
     ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);
+  }
+  function pick(clientX, clientY) {
+    setRay(clientX, clientY);
     const list = [...pickables[state.site], ...pins[state.site]];
     for (const a of Object.values(actors)) if (a.proxy && a.root.visible) list.push(a.proxy);
     const hits = raycaster.intersectObjects(list, false);
@@ -854,54 +1092,87 @@ export async function createFarmScene(canvas, opts = {}) {
   }
   function onPointerDown(e) {
     pointer.down = { x: e.clientX, y: e.clientY, t: performance.now() };
+    pointer.touch = e.pointerType === 'touch';
+    state.hoverDirty = true;
   }
   function onPointerUp(e) {
     const d = pointer.down; pointer.down = null;
+    if (pointer.dragging) { pointer.dragging = false; canvas.style.cursor = ''; }
+    state.hoverDirty = true;
     if (!d) return;
     const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y);
-    if (moved > 6 || performance.now() - d.t > 700) return;
+    if (moved > 6 || performance.now() - d.t > 700 || e.button > 0) return;
     const id = pick(e.clientX, e.clientY);
     if (id) { selectInternal(id, { fly: true }); onSelect(id); }
     else { clearSelection(); onSelect(null); }
   }
   function onPointerMove(e) {
-    pointer.x = e.clientX; pointer.y = e.clientY; pointer.inside = true;
-    if (pointer.down && Math.hypot(e.clientX - pointer.down.x, e.clientY - pointer.down.y) > 6) state.followId = null;
+    pointer.x = e.clientX; pointer.y = e.clientY;
+    pointer.touch = e.pointerType === 'touch';
+    pointer.inside = !pointer.touch;
+    if (pointer.down && Math.hypot(e.clientX - pointer.down.x, e.clientY - pointer.down.y) > 6) {
+      state.followId = null;
+      if (!pointer.dragging) { pointer.dragging = true; if (!pointer.touch) canvas.style.cursor = 'grabbing'; }
+    }
     state.hoverDirty = true;
     if (RM) { updateHover(); }
+    if (state.paused) requestRender();
   }
-  function onPointerCancel() { pointer.down = null; state.hoverDirty = true; }
+  function onPointerCancel() { pointer.down = null; pointer.dragging = false; state.hoverDirty = true; }
   function onPointerLeave() {
     pointer.inside = false; state.hoverDirty = true;
     if (RM) updateHover();
   }
-  function updateHover() {
-    if (!state.hoverDirty) return;
+  // world point above an object where its label (or the app's tooltip) belongs
+  function hoverAnchor(f, out) {
+    if (f.kind === 'static') {
+      const b = f.def.box;
+      out.set((b.min.x + b.max.x) / 2, b.max.y + 0.9, (b.min.z + b.max.z) / 2);
+      if (f.def.pin) out.copy(f.def.pin).add(new THREE.Vector3(0, f.def.pinSmall ? 2.6 : 3.6, 0));
+      return f.site.group.localToWorld(out);
+    }
+    out.set(0, f.actor.box.max.y + 0.8, 0);
+    return f.actor.root.localToWorld(out);
+  }
+  const anchorV = new THREE.Vector3();
+  function sendHover(id, force) {
+    if (!onHover) return;
+    if (!force && id === hoverLabel.sentId && (!id || (pointer.x === pointer.sentX && pointer.y === pointer.sentY))) return;
+    hoverLabel.sentId = id; pointer.sentX = pointer.x; pointer.sentY = pointer.y;
+    let extra = { anchorX: pointer.x, anchorY: pointer.y };
+    const f = id && findObject(id);
+    if (f && (f.kind === 'static' || f.actor.root.visible)) {
+      hoverAnchor(f, anchorV).project(camera);
+      const r = canvas.getBoundingClientRect();
+      extra = { anchorX: r.left + ((anchorV.x + 1) / 2) * r.width, anchorY: r.top + ((1 - anchorV.y) / 2) * r.height };
+    }
+    safeCall(onHover, id, pointer.x, pointer.y, extra);
+  }
+  function updateHover(now = performance.now()) {
+    // moving actors pass under a still pointer: look again every 150 ms
+    if (!state.hoverDirty && !(pointer.inside && !pointer.down && now - state.lastPick > 150)) return;
     state.hoverDirty = false;
-    const id = pointer.inside && !pointer.down ? pick(pointer.x, pointer.y) : null;
-    canvas.style.cursor = id ? 'pointer' : '';
-    if (id === hoverLabel.id) return;
-    hoverLabel.id = id;
-    if (!id || id === state.selected) { hoverLabel.sprite.visible = false; requestRender(); return; }
-    const f = findObject(id);
-    drawLabel(hoverLabel.lc, hoverLabel.sprite, { ...labelInfo(id), tone: 'neutral' });
-    hoverLabel.target = f;
-    hoverLabel.sprite.visible = true;
-    requestRender();
+    state.lastPick = now;
+    const id = pointer.inside && !pointer.down && !pointer.touch ? pick(pointer.x, pointer.y) : null;
+    if (!pointer.dragging) canvas.style.cursor = id ? 'pointer' : '';
+    setGlow(id && id !== state.selected ? id : null);
+    if (id !== hoverLabel.id) {
+      hoverLabel.id = id;
+      hoverLabel.target = id ? findObject(id) : null;
+      if (onHover || !id || id === state.selected) hoverLabel.sprite.visible = false;
+      else {
+        drawLabel(hoverLabel.lc, hoverLabel.sprite, { ...labelInfo(id), tone: 'neutral' });
+        hoverLabel.sprite.visible = true;
+      }
+      requestRender();
+    }
+    sendHover(id, false);
   }
   function placeHoverLabel() {
     const f = hoverLabel.target;
     if (!hoverLabel.sprite.visible || !f) return;
-    if (f.kind === 'static') {
-      const b = f.def.box;
-      tmpV.set((b.min.x + b.max.x) / 2, b.max.y + 0.9, (b.min.z + b.max.z) / 2);
-      if (f.def.pin) tmpV.copy(f.def.pin).add(new THREE.Vector3(0, f.def.pinSmall ? 2.6 : 3.6, 0));
-      hoverLabel.sprite.position.copy(f.site.group.localToWorld(tmpV));
-    } else {
-      if (!f.actor.root.visible) { hoverLabel.sprite.visible = false; return; }
-      tmpV.set(0, f.actor.box.max.y + 0.8, 0);
-      hoverLabel.sprite.position.copy(f.actor.root.localToWorld(tmpV));
-    }
+    if (f.kind !== 'static' && !f.actor.root.visible) { hoverLabel.sprite.visible = false; return; }
+    hoverLabel.sprite.position.copy(hoverAnchor(f, tmpV));
   }
   canvas.addEventListener('pointerdown', onPointerDown);
   canvas.addEventListener('pointerup', onPointerUp);
@@ -1033,12 +1304,31 @@ export async function createFarmScene(canvas, opts = {}) {
       }
     }
   }
+  function record(emit, time) {
+    const st = stats[state.site];
+    const o = st.obj[emit.objectId] || (st.obj[emit.objectId] = { passes: 0, denied: 0, plates: 0, alarms: 0, doors: 0, last: null });
+    if (emit.type === 'face') { if (emit.result === 'allowed') o.passes++; else o.denied++; }
+    if (emit.type === 'plate') o.plates++;
+    if (emit.type === 'alarm') o.alarms++;
+    if (emit.type === 'door' && emit.state === 'open') o.doors++;
+    if (emit.type !== 'door') o.last = { ...emit, time };
+    const actorId = emit.personId || emit.vehicleId;
+    if (actorId) {
+      const a = st.actor[actorId] || (st.actor[actorId] = { passes: 0, last: null });
+      a.passes++;
+      a.last = emit.type === 'plate'
+        ? { direction: emit.direction, result: emit.result, time }
+        : { point: emit.point, objectId: emit.objectId, result: emit.result, time };
+    }
+  }
   function processEvents(fromT, toT) {
     // events with t in (fromT, toT], handling the loop wrap
     const fire = (e) => {
       if (e.fx && e.fx.length) runFx(e.fx, e.emit);
       if (e.emit) {
-        try { onEvent({ ...e.emit, time: new Date() }); } catch (err) { console.error(err); }
+        const time = new Date();
+        record(e.emit, time);
+        try { onEvent({ ...e.emit, time }); } catch (err) { console.error(err); }
       }
       requestRender();
     };
@@ -1051,7 +1341,7 @@ export async function createFarmScene(canvas, opts = {}) {
 
   // ---------------------------------------------------------------- per-frame updates
   const cowMat = new THREE.Matrix4(), cowQ = new THREE.Quaternion(), cowE = new THREE.Euler(), cowP = new THREE.Vector3(), cowS = new THREE.Vector3(1, 1, 1);
-  function updateActors(lt, simT) {
+  function updateActors(lt, simT, now = performance.now()) {
     for (const [id, tr] of Object.entries(sim.tracks)) {
       const a = actors[id];
       if (!a) continue;
@@ -1063,7 +1353,10 @@ export async function createFarmScene(canvas, opts = {}) {
       }
       a.root.position.set(poseTmp.x, 0, poseTmp.z);
       a.root.rotation.y = poseTmp.yaw;
-      const f = RM ? 1 : easeOut(poseTmp.fade);
+      let f = RM ? 1 : easeOut(poseTmp.fade);
+      // after a scenario jump, actors that moved grow back in place instead of popping
+      const pop = state.pop[id];
+      if (pop) { const k = (now - pop) / 450; if (k >= 1 || RM) delete state.pop[id]; else f *= easeOut(clamp(k, 0, 1)); }
       a.root.scale.setScalar(Math.max(0.001, f));
       if (a.kind === 'person' || a.kind === 'animal') {
         const walking = poseTmp.moving && !RM;
@@ -1225,6 +1518,13 @@ export async function createFarmScene(canvas, opts = {}) {
       selMat.opacity = 0.35 + 0.61 * intro;
       glowMat.opacity = (0.32 + (RM ? 0 : Math.sin(t * 2.6) * 0.08)) * intro;
     }
+    // hover glow fades in
+    if (glow.id) {
+      const target = lerp(0.3, 0.46, smooth(state.nightK));
+      if (glow.k < 1) { glow.k = RM ? 1 : Math.min(1, glow.k + dt / 0.16); busy = true; }
+      const a = target * easeOut(glow.k);
+      if (hoverMat.uniforms.uAlpha.value !== a) { hoverMat.uniforms.uAlpha.value = a; busy = true; }
+    }
     // pins bob + distance scale
     const dist = camera.position.distanceTo(controls.target);
     const ps = clamp(dist / 150, 0.55, 1.35);
@@ -1247,26 +1547,46 @@ export async function createFarmScene(canvas, opts = {}) {
 
   // ---------------------------------------------------------------- loop
   let raf = 0, lastNow = performance.now(), rmTimer = 0;
-  const perf = { frames: 0, acc: 0, startedAt: performance.now(), degraded: 0 };
+  const perf = { frames: 0, acc: 0, startedAt: performance.now(), degraded: 0, noSnow: false };
   function requestRender() {
     state.needsRender = true;
-    if (!raf && !state.paused && !state.disposed && RM) raf = requestAnimationFrame(rmFrame);
+    if (raf || state.disposed) return;
+    // paused demo: the farm stands still, but camera moves, the night switch and panel changes are still drawn
+    if (state.paused) { if (!document.hidden) raf = requestAnimationFrame(stillFrame); return; }
+    if (RM) raf = requestAnimationFrame(rmFrame);
+  }
+  let stillLast = 0;
+  function stillFrame(now) {
+    raf = 0;
+    if (state.disposed || !state.paused || document.hidden) return;
+    const dt = stillLast && now - stillLast < 200 ? (now - stillLast) / 1000 : 1 / 60;
+    stillLast = now;
+    const busy = update(RM ? 0 : dt, now);   // simTime does not advance: no events, actors keep their poses
+    renderer.render(scene, camera);
+    state.needsRender = false;
+    const moving = busy || state.flight || manual.keys.size || manual.pan.x || manual.pan.y || manual.rot || manual.zoom
+      || state.nightK !== (state.night ? 1 : 0) || (userInsets && curInsets && EDGES.some((e) => Math.abs(userInsets[e] - curInsets[e]) >= 0.5));
+    if (moving && !raf) raf = requestAnimationFrame(stillFrame);
+    else if (!moving) stillLast = 0;
   }
   function update(dt, now) {
     if (easeInsets(dt)) state.needsRender = true;
+    if (updateNight(dt)) state.needsRender = true;
     updateFlight(now);
     if (!state.flight && controls.enabled) {
+      if (updateManual(dt)) state.needsRender = true;
       controls.update();
       clampTarget();
     }
-    const lt = ((state.simTime % LOOP) + LOOP) % LOOP;
+    if (state.scenario) tickScenario(now);
+    const lt = loopTime();
     processEvents(state.lastLt, lt);
     state.lastLt = lt;
-    updateActors(lt, state.simTime);
+    updateActors(lt, state.simTime, now);
     updateFixtures(lt, now);
     follow(dt);
     const busy = updateFx(now, dt);
-    updateHover();
+    updateHover(now);
     placeHoverLabel();
     keepLabelsInView();
     // fog and snow follow the camera target
@@ -1277,10 +1597,11 @@ export async function createFarmScene(canvas, opts = {}) {
     snowMat.uniforms.uTime.value = state.simTime;
     return busy;
   }
+  // The orbit target stays over the farm (fence ±52 × −40…36, the road at 54), so the farm never leaves the view.
   function clampTarget() {
     const o = SITE_ORIGINS[state.site];
     const t = controls.target;
-    const cx = clamp(t.x, o.x - 75, o.x + 80), cz = clamp(t.z, o.z - 70, o.z + 70), cy = clamp(t.y, 0, 6);
+    const cx = clamp(t.x, o.x - 64, o.x + 66), cz = clamp(t.z, o.z - 52, o.z + 62), cy = clamp(t.y, 0, 6);
     if (cx !== t.x || cz !== t.z || cy !== t.y) {
       const dx = cx - t.x, dz = cz - t.z, dy = cy - t.y;
       t.set(cx, cy, cz);
@@ -1297,6 +1618,297 @@ export async function createFarmScene(canvas, opts = {}) {
     controls.target.x += dx; controls.target.z += dz;
     camera.position.x += dx; camera.position.z += dz;
   }
+
+  // ---------------------------------------------------------------- manual camera: held keys and smooth nudges
+  // manual.pan / rot / zoom: what is left of panBy() / rotateBy(…, { nudge }) / zoomBy(…, { nudge }); eased per frame.
+  const manual = { keys: new Set(), pan: new THREE.Vector2(), rot: 0, zoom: 0 };
+  const KEYMAP = {
+    ArrowUp: 'fwd', KeyW: 'fwd', ArrowDown: 'back', KeyS: 'back', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
+    KeyQ: 'rotL', KeyE: 'rotR', Equal: 'in', NumpadAdd: 'in', Minus: 'out', NumpadSubtract: 'out',
+  };
+  const takeCamera = () => { cancelFlight(); state.followId = null; state.atHome = false; };
+  function updateManual(dt) {
+    const K = manual.keys;
+    const k = RM || dt <= 0 ? 1 : 1 - Math.exp(-dt * 9);
+    let dx = manual.pan.x * k, dz = manual.pan.y * k, dr = manual.rot * k, dzm = manual.zoom * k;
+    manual.pan.x -= dx; manual.pan.y -= dz; manual.rot -= dr; manual.zoom -= dzm;
+    if (Math.abs(manual.pan.x) < 0.01) manual.pan.x = 0;
+    if (Math.abs(manual.pan.y) < 0.01) manual.pan.y = 0;
+    if (Math.abs(manual.rot) < 0.0005) manual.rot = 0;
+    if (Math.abs(manual.zoom) < 0.002) manual.zoom = 0;
+    if (K.size && dt > 0) {
+      const d = camera.position.distanceTo(controls.target);
+      const sp = clamp(d * 0.32, 8, 60) * dt;
+      dx += ((K.has('right') ? 1 : 0) - (K.has('left') ? 1 : 0)) * sp;
+      dz += ((K.has('fwd') ? 1 : 0) - (K.has('back') ? 1 : 0)) * sp;
+      dr += ((K.has('rotR') ? 1 : 0) - (K.has('rotL') ? 1 : 0)) * 1.0 * dt;
+      dzm += ((K.has('in') ? 1 : 0) - (K.has('out') ? 1 : 0)) * 2.6 * dt;
+    }
+    if (!dx && !dz && !dr && !dzm) return false;
+    const t = controls.target;
+    tmpV.copy(camera.position).sub(t);
+    tmpS.setFromVector3(tmpV);
+    const s = Math.sin(tmpS.theta), c = Math.cos(tmpS.theta);
+    // screen-right on the ground: (cos θ, −sin θ); away from the viewer: (−sin θ, −cos θ)
+    t.x += c * dx - s * dz;
+    t.z += -s * dx - c * dz;
+    tmpS.theta += dr;
+    tmpS.radius = clamp(tmpS.radius * Math.pow(0.8, dzm), controls.minDistance, controls.maxDistance);
+    camera.position.setFromSpherical(tmpS).add(t);
+    camera.lookAt(t);
+    state.atHome = false;
+    return true;
+  }
+  const kb = { on: false, target: null };
+  function onKeyDown(e) {
+    if (!kb.on || (e.target !== kb.target && e.target !== canvas)) return;
+    if (e.code === 'Escape' || e.key === 'Escape') {
+      if (state.selected) { clearSelection(); safeCall(onSelect, null); }
+      return;
+    }
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const act = KEYMAP[e.code] || (e.key === '+' ? 'in' : e.key === '-' ? 'out' : null);
+    if (!act) return;
+    e.preventDefault();
+    takeCamera();
+    if (RM) {
+      // reduced motion: one step per key press, drawn at once
+      if (act === 'left' || act === 'right') manual.pan.x += act === 'right' ? 8 : -8;
+      if (act === 'fwd' || act === 'back') manual.pan.y += act === 'fwd' ? 8 : -8;
+      if (act === 'rotL' || act === 'rotR') manual.rot += (act === 'rotR' ? 1 : -1) * THREE.MathUtils.degToRad(15);
+      if (act === 'in' || act === 'out') manual.zoom += act === 'in' ? 1 : -1;
+      requestRender();
+      return;
+    }
+    manual.keys.add(act);
+    // a quick tap is one visible step (a held key keeps moving on top of it)
+    if (!e.repeat) {
+      const step = clamp(camera.position.distanceTo(controls.target) * 0.05, 2, 9);
+      if (act === 'left' || act === 'right') manual.pan.x += act === 'right' ? step : -step;
+      if (act === 'fwd' || act === 'back') manual.pan.y += act === 'fwd' ? step : -step;
+      if (act === 'rotL' || act === 'rotR') manual.rot += (act === 'rotR' ? 1 : -1) * THREE.MathUtils.degToRad(8);
+      if (act === 'in' || act === 'out') manual.zoom += act === 'in' ? 0.5 : -0.5;
+    }
+    requestRender();
+  }
+  function onKeyUp(e) {
+    const act = KEYMAP[e.code] || (e.key === '+' ? 'in' : e.key === '-' ? 'out' : null);
+    if (act) manual.keys.delete(act);
+  }
+  function onKeyBlur() { manual.keys.clear(); }
+  function setKeyboardEnabled(on, target) {
+    if (kb.target) {
+      kb.target.removeEventListener('keydown', onKeyDown);
+      kb.target.removeEventListener('keyup', onKeyUp);
+      kb.target.removeEventListener('blur', onKeyBlur);
+    }
+    manual.keys.clear();
+    kb.on = !!on;
+    kb.target = kb.on ? (target || canvas) : null;
+    if (!kb.target) return;
+    kb.target.addEventListener('keydown', onKeyDown);
+    kb.target.addEventListener('keyup', onKeyUp);
+    kb.target.addEventListener('blur', onKeyBlur);
+    if (kb.target === canvas && !canvas.hasAttribute('tabindex')) canvas.tabIndex = 0;
+  }
+
+  // ---------------------------------------------------------------- double-click: fly to an object or a spot
+  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  function focusPoint(clientX, clientY, { dur = 0.9 } = {}) {
+    if (state.disposed || (state.flight && state.flight.arc)) return Promise.resolve(null);
+    const id = pick(clientX, clientY);
+    const v = currentView();
+    if (id) {
+      const f = findObject(id);
+      let center, radius;
+      if (f.kind === 'static') {
+        const b = f.def.frameBox || f.def.box;
+        center = f.site.group.localToWorld(b.getCenter(new THREE.Vector3()));
+        radius = b.getSize(new THREE.Vector3()).length() / 2;
+      } else {
+        if (!f.actor.root.visible) return Promise.resolve(null);
+        center = f.actor.root.getWorldPosition(new THREE.Vector3());
+        radius = f.actor.box.getSize(new THREE.Vector3()).length() / 2;
+      }
+      center.y = Math.min(center.y, 4);
+      state.atHome = false; state.followId = null;
+      const dist = Math.min(v.dist, selectionDistance(radius, f.kind === 'static') * 0.9);
+      return flyTo({ target: center, dist, az: v.az, polar: v.polar }, { dur }).then(() => ({ id }));
+    }
+    setRay(clientX, clientY);
+    const hit = raycaster.ray.intersectPlane(groundPlane, new THREE.Vector3());
+    if (!hit) return Promise.resolve(null);
+    const o = SITE_ORIGINS[state.site];
+    hit.set(clamp(hit.x, o.x - 64, o.x + 66), 0, clamp(hit.z, o.z - 52, o.z + 62));
+    state.atHome = false; state.followId = null;
+    return flyTo({ target: hit, dist: Math.max(controls.minDistance + 10, v.dist * 0.62), az: v.az, polar: v.polar }, { dur })
+      .then(() => ({ point: [+(hit.x - o.x).toFixed(1), +(hit.z - o.z).toFixed(1)] }));
+  }
+
+  // ---------------------------------------------------------------- «Попробуйте сами»: scenarios
+  const norm = (t) => ((t % LOOP) + LOOP) % LOOP;
+  const scenarioDef = (id) => SCENARIOS.find((s) => s.id === id);
+  const scenarioDuration = (def) => (def.command ? def.duration : def.lead + def.tail);
+  const scenarioAvailable = (def, siteId = state.site) => !!def.command || sims[siteId].keys[def.key] != null;
+  // The scenario's place fitted into the part of the canvas the panels leave free (like the home view);
+  // on phones the camera looks more from the front.
+  function scenarioShot(def) {
+    const tall = viewW / viewH < 0.8;
+    const az = tall ? def.shot.az - 0.4 : def.shot.az, polar = tall ? def.shot.polar - 0.08 : def.shot.polar;
+    const [x, z] = def.shot.at;
+    const { target, dist } = fitHome(state.site, az, polar, def.frame, { start: new THREE.Vector3(x, 0, z), minDist: def.shot.min || 34, area: clearArea() });
+    return { target, dist, az, polar };
+  }
+  // The free rect minus tall panels standing at its left or right edge inside it (the app's scenario column,
+  // the view buttons): a scenario's place is framed beside them, not under them. Small panels only move labels.
+  function clearArea() {
+    const f = freeRect(true);
+    let x0 = f.x0, x1 = f.x0 + f.w;
+    for (const a of avoidRects) {
+      if (a.y1 - a.y0 < f.h * 0.3 || a.y1 < f.y0 || a.y0 > f.y0 + f.h) continue;
+      if (a.x0 <= f.x0 + 40 && a.x1 < f.x0 + f.w * 0.45) x0 = Math.max(x0, a.x1 + 8);
+      else if (a.x1 >= f.x0 + f.w - 40 && a.x0 > f.x0 + f.w * 0.55) x1 = Math.min(x1, a.x0 - 8);
+    }
+    return x1 - x0 >= f.w * 0.5 ? { x0, y0: f.y0, w: x1 - x0, h: f.h } : f;
+  }
+  // loop time at which the actor's visible stretch around t begins (a scenario never starts before its actor appears)
+  function visibleFrom(tr, t) {
+    const lt = tr.local(t);
+    for (const [a, b] of tr.vis) if (lt >= a && lt < b) return t - (lt - a);
+    return -Infinity;
+  }
+  function vehiclesInsideAt(T) {
+    const out = [], o = {};
+    for (const id of Object.keys(VEHICLES)) {
+      const tr = sim.tracks[id];
+      if (!tr) continue;
+      tr.pose(T, o);
+      if (o.visible && o.z < LAYOUT.fence.z1 - 0.5 && Math.abs(o.x) < LAYOUT.fence.x1 + 1) out.push(id);
+    }
+    return out;
+  }
+  // Move the loop to T. Actors are pure functions of loop time, so the farm is instantly consistent; the ones that
+  // moved grow back in place. simTime itself runs on (snow, walking), only the loop offset changes.
+  function jumpTo(T) {
+    const now = performance.now(), o = {};
+    const before = {};
+    for (const id of Object.keys(sim.tracks)) { const a = actors[id]; if (a) before[id] = a.root.visible ? a.root.position.clone() : null; }
+    state.loopOffset += T - loopTime();
+    state.lastLt = T;
+    for (const h of halos) { h.active = false; h.mesh.visible = false; }
+    scan.active = false; beam.visible = false;
+    for (const [id, tr] of Object.entries(sim.tracks)) {
+      if (!actors[id]) continue;
+      tr.pose(T, o);
+      const b = before[id];
+      if (o.visible && o.fade > 0.01 && (!b || Math.hypot(b.x - o.x, b.z - o.z) > 0.4)) state.pop[id] = now;
+    }
+  }
+  function runScenario(id) {
+    const def = scenarioDef(id);
+    if (!def) return Promise.reject(scenarioError('unknown', 'Нет такого сценария: ' + id));
+    if (state.disposed) return Promise.reject(scenarioError('cancelled', 'Сцена закрыта'));
+    if (state.scenario || (state.flight && state.flight.arc)) return Promise.reject(scenarioError('busy', 'Сейчас идёт другой сценарий'));
+    if (state.paused) return Promise.reject(scenarioError('paused', 'Демо на паузе'));
+    if (!scenarioAvailable(def)) return Promise.reject(scenarioError('unknown', 'Сценарий недоступен на этой ферме'));
+    return new Promise((resolve, reject) => {
+      const duration = scenarioDuration(def);
+      if (state.selected) { clearSelection(); safeCall(onSelect, null); }
+      state.followId = null;
+      manual.keys.clear(); manual.pan.set(0, 0); manual.rot = 0; manual.zoom = 0;
+      let onSiteDelta = 0, vehiclesInside = null;
+      if (!def.command) {
+        const key = sim.keys[def.key];
+        const tr = sim.tracks[def.actor];
+        const T = norm(Math.max(key - def.lead, tr ? visibleFrom(tr, key) + 0.02 : -Infinity));
+        onSiteDelta = sim.headAt(T) - sim.headAt(loopTime());
+        jumpTo(T);
+        vehiclesInside = vehiclesInsideAt(T);
+      }
+      state.scenario = { def, id, title: def.title, duration, t0: state.simTime, resolve, reject, sent: 0, fired: false, result: { id } };
+      state.atHome = false;
+      flyTo(scenarioShot(def), { dur: 1.3 });
+      safeCall(onScenario || (() => {}), { id, phase: 'start', progress: 0, duration, onSiteDelta, vehiclesInside });
+      requestRender();
+    });
+  }
+  function tickScenario() {
+    const sc = state.scenario;
+    const elapsed = state.simTime - sc.t0;
+    const progress = clamp(elapsed / sc.duration, 0, 1);
+    if (sc.def.command && !sc.fired && elapsed >= 1.15) {
+      sc.fired = true;
+      doorCommand(sc.def.command).then((r) => {
+        sc.result.ms = r.ms;
+        // the door is open now: the app logs the command at this moment, not when the scenario ends
+        if (onScenario && state.scenario === sc) safeCall(onScenario, { id: sc.id, phase: 'command', objectId: sc.def.command, ms: r.ms, progress: clamp((state.simTime - sc.t0) / sc.duration, 0, 1), duration: sc.duration });
+      }, () => { sc.result.ms = -1; });
+    }
+    if (onScenario && (progress - sc.sent >= 0.04 || (progress >= 1 && sc.sent < 1))) {
+      sc.sent = progress;
+      safeCall(onScenario, { id: sc.id, phase: 'progress', progress, duration: sc.duration });
+    }
+    if (progress >= 1 && (!sc.def.command || sc.result.ms != null)) endScenario('done');
+  }
+  function endScenario(phase) {
+    const sc = state.scenario;
+    if (!sc) return;
+    state.scenario = null;
+    if (phase === 'done') {
+      if (sc.result.ms === -1) delete sc.result.ms;
+      sc.resolve(sc.result);
+    } else sc.reject(scenarioError('cancelled', 'Сценарий прерван'));
+    if (onScenario) safeCall(onScenario, { id: sc.id, phase, progress: phase === 'done' ? 1 : clamp((state.simTime - sc.t0) / sc.duration, 0, 1), duration: sc.duration });
+  }
+
+  // ---------------------------------------------------------------- live data for tooltips and cards
+  const lower1 = (s) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s);
+  function insideFence(o) { const F = LAYOUT.fence; return o.x > F.x0 && o.x < F.x1 && o.z > F.z0 && o.z < F.z1; }
+  function objectInfo(id) {
+    const f = findObject(id);
+    if (!f) return null;
+    const site = state.site, st = stats[site];
+    if (f.kind === 'static') {
+      const d = f.def, P = f.site.parts;
+      const alarm = state.alarms.has(id) || (id === 'perimeter' && state.alarms.has('perimeter-cam'));
+      let door;
+      if (id === 'feed') door = P.feedDoor.scale.y < 0.92 ? 'open' : 'closed';
+      if (id === 'office') door = P.officeDoor.rotation.y < -0.08 ? 'open' : 'closed';
+      if (id === 'checkpoint') door = state.userDoors.checkpoint ? 'open' : 'closed';
+      const c = { passes: 0, denied: 0, plates: 0, alarms: 0, doors: 0, last: null, ...(st.obj[id] || {}) };
+      if (id === 'perimeter' && st.obj['perimeter-cam']) { c.alarms += st.obj['perimeter-cam'].alarms; c.last = c.last || st.obj['perimeter-cam'].last; }
+      const statusText = alarm ? 'тревога' : 'на связи';
+      const doorText = !door ? '' : id === 'checkpoint' ? (door === 'open' ? 'турникет открыт' : 'турникет закрыт') : (door === 'open' ? 'дверь открыта' : 'дверь закрыта');
+      return {
+        id, kind: d.kind, name: d.name, subtitle: d.subtitle, site, status: alarm ? 'alarm' : 'ok', statusText, door,
+        sinceLoad: c, tooltip: { title: d.name, text: [statusText, doorText].filter(Boolean).join(' · ') },
+      };
+    }
+    const a = f.actor, tr = sim.tracks[id], lt = loopTime(), o = {};
+    if (tr) tr.pose(lt, o);
+    const visible = a.root.visible;
+    const doing = tr ? tr.labelAt(lt) : '';
+    const onSite = visible ? insideFence(o) : null;
+    const rec = st.actor[id] || { passes: 0, last: null };
+    if (VEHICLES[id]) {
+      const v = VEHICLES[id], plate = plateOf(id, site);
+      const list = (SITE_DATA && SITE_DATA.vehicles && SITE_DATA.vehicles[id] && SITE_DATA.vehicles[id].list) || (id === 'unknown-car' ? 'none' : 'white');
+      const listText = list === 'white' ? 'в белом списке' : list === 'black' ? 'в чёрном списке' : 'нет в списке';
+      return {
+        id, kind: 'vehicle', name: v.name, site, plate, vehicle: v.vehicle, list, listText, doing, visible, moving: !!o.moving, onSite,
+        lastPass: rec.last, passesSinceLoad: rec.passes, tooltip: { title: `${v.name} ${plate}`, text: [listText, doing].filter(Boolean).join(' · ') },
+      };
+    }
+    const p = PEOPLE[id];
+    const known = (SITE_DATA && SITE_DATA.people && SITE_DATA.people[p.name]) || null;
+    const schedule = (known && known.schedule) || '';
+    const text = id === 'stranger' ? 'нет в базе сотрудников' : schedule ? `смена ${lower1(schedule.replace(' · ', ' '))}` : lower1(p.role);
+    return {
+      id, kind: 'person', name: p.name, site, role: (known && known.role) || p.role, schedule, tab: known ? known.tab : null,
+      doing, visible, moving: !!o.moving, onSite, lastPass: rec.last, passesSinceLoad: rec.passes, tooltip: { title: p.name, text },
+    };
+  }
+
   function frame(now) {
     raf = 0;
     if (state.paused || state.disposed) return;
@@ -1344,12 +1956,13 @@ export async function createFarmScene(canvas, opts = {}) {
         sun.shadow.mapSize.set(1024, 1024);
         sun.shadow.map?.dispose(); sun.shadow.map = null;
       } else {
-        snowPts.visible = false;
+        snowPts.visible = false; perf.noSnow = true;
       }
     }
   }
   function start() {
     if (state.disposed || state.paused) return;
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }   // a pending still frame from the paused state
     resize();
     lastNow = performance.now();
     if (RM) {
@@ -1376,7 +1989,19 @@ export async function createFarmScene(canvas, opts = {}) {
   controls.update();
   state.homePlaced = true;
   update(0, performance.now());
+  // compile the hidden night overlays and the hover glow too, so the first night switch or hover does not stutter
+  const warmGroup = new THREE.Group();
+  {
+    const g = new THREE.BoxGeometry(0.01, 0.01, 0.01);
+    warmGroup.add(new THREE.Mesh(g, hoverMat), new THREE.Mesh(g, beamMatV), new THREE.Points(g, vehBulbMat));
+    warmGroup.position.copy(controls.target);
+    scene.add(warmGroup);
+  }
+  for (const s of Object.values(sites)) s.night.group.visible = true;
   try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); } catch (e) { /* optional */ }
+  for (const s of Object.values(sites)) s.night.group.visible = state.nightK > 0.002;
+  scene.remove(warmGroup);
+  warmGroup.children[0].geometry.dispose();
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(() => {
       if (state.disposed) return;
@@ -1390,6 +2015,28 @@ export async function createFarmScene(canvas, opts = {}) {
     }).catch(() => {});
   }
 
+  // Remote «open» command: cloud → processor → the door's terminal (packet down the uplink), then the door opens.
+  function doorCommand(objectId) {
+    if (!['checkpoint', 'feed', 'office'].includes(objectId)) return Promise.reject(new Error('Нельзя открыть: ' + objectId));
+    const t0 = performance.now();
+    const anchor = { checkpoint: 'cpIn', feed: 'feedTerm', office: 'officeTerm' }[objectId];
+    const siteId = state.site;
+    const target = siteAnchor(anchor, siteId);
+    const travel = 0.62;
+    spawnPacket(downlinkPath(target, siteId), 'cmd', travel, { midAt: 0.55, onMid: () => { state.ledFlash = performance.now(); } });
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        const now = performance.now();
+        const openDur = objectId === 'feed' ? 1.1 : objectId === 'office' ? 0.5 : 0.6;
+        state.userDoors[objectId] = { openAt: now, openDur, hold: 4.2, closeDur: objectId === 'feed' ? 1.5 : 0.8 };
+        flashScreen(anchor, 'ok', 2600);
+        spawnRing(target.clone().setY(0.1), 'ok', 3.4);
+        requestRender();
+        setTimeout(() => resolve({ ms: Math.round(performance.now() - t0) }), (RM || state.paused ? 0 : openDur * 1000));
+      }, travel * 1000 + 40);
+    });
+  }
+
   // ---------------------------------------------------------------- public API
   const api = {
     get objects() { return siteObjects(state.site); },
@@ -1401,26 +2048,7 @@ export async function createFarmScene(canvas, opts = {}) {
       if (objectId == null) { clearSelection(); return; }
       selectInternal(objectId, { fly: true });
     },
-    openDoor(objectId) {
-      if (!['checkpoint', 'feed', 'office'].includes(objectId)) return Promise.reject(new Error('Нельзя открыть: ' + objectId));
-      const t0 = performance.now();
-      const anchor = { checkpoint: 'cpIn', feed: 'feedTerm', office: 'officeTerm' }[objectId];
-      const siteId = state.site;
-      const target = siteAnchor(anchor, siteId);
-      const travel = 0.62;
-      spawnPacket(downlinkPath(target, siteId), 'cmd', travel, { midAt: 0.55, onMid: () => { state.ledFlash = performance.now(); } });
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          const now = performance.now();
-          const openDur = objectId === 'feed' ? 1.1 : objectId === 'office' ? 0.5 : 0.6;
-          state.userDoors[objectId] = { openAt: now, openDur, hold: 4.2, closeDur: objectId === 'feed' ? 1.5 : 0.8 };
-          flashScreen(anchor, 'ok', 2600);
-          spawnRing(target.clone().setY(0.1), 'ok', 3.4);
-          requestRender();
-          setTimeout(() => resolve({ ms: Math.round(performance.now() - t0) }), (RM || state.paused ? 0 : openDur * 1000));
-        }, travel * 1000 + 40);
-      });
-    },
+    openDoor: doorCommand,
     // Optional: tell the scene which part of the canvas is covered by UI (px from each edge), or null for defaults.
     // { animate: false } snaps (use it for the first call, before the canvas is shown).
     setViewInsets(next, { animate = true } = {}) {
@@ -1429,23 +2057,56 @@ export async function createFarmScene(canvas, opts = {}) {
       const from = { ...insets() };
       userInsets = next ? { top: Math.max(0, +next.top || 0), right: Math.max(0, +next.right || 0), bottom: Math.max(0, +next.bottom || 0), left: Math.max(0, +next.left || 0) } : null;
       avoidRects = next && Array.isArray(next.avoid) ? next.avoid.filter((a) => a && a.x1 > a.x0 && a.y1 > a.y0) : [];
+      labelTop = next && +next.labelTop > 0 ? +next.labelTop : 0;
+      homeDistCache = 0;
       curInsets = userInsets ? (animate && !RM ? from : { ...userInsets }) : null;
       applyViewOffset();
       const now = freeRect(true);
       if (Math.abs(now.w - prev.w) > 6 || Math.abs(now.h - prev.h) > 6 || Math.abs(now.cx - prev.cx) > 6 || Math.abs(now.cy - prev.cy) > 6) refit(animate && !RM);
       requestRender();
     },
-    zoomBy(step) {
+    zoomBy(step, { nudge = false } = {}) {
+      if (nudge) { takeCamera(); manual.zoom += step || 0; requestRender(); return; }
       state.atHome = false;
       const v = currentView();
       const dist = clamp(v.dist * Math.pow(0.8, step || 0), controls.minDistance, controls.maxDistance);
       flyTo({ ...v, dist }, { dur: 0.35 });
     },
-    rotateBy(deg) {
+    rotateBy(deg, { nudge = false } = {}) {
+      if (nudge) { takeCamera(); manual.rot += THREE.MathUtils.degToRad(deg || 0); requestRender(); return; }
       state.atHome = false;
       const v = currentView();
       flyTo({ ...v, az: v.az + THREE.MathUtils.degToRad(deg || 0) }, { dur: 0.55 });
     },
+    // smooth pan in metres: dx to the right of the screen, dz away from the viewer; repeated calls add up
+    panBy(dx, dz) {
+      if (state.disposed) return;
+      takeCamera();
+      manual.pan.x += +dx || 0; manual.pan.y += +dz || 0;
+      requestRender();
+    },
+    focusPoint,
+    enableWheelZoom(on) { wheelZoom = !!on; controls.zoomToCursor = wheelZoom; },
+    get wheelZoom() { return wheelZoom; },
+    setKeyboardEnabled,
+    setNight(on) {
+      if (state.disposed) return;
+      state.night = !!on;
+      if (RM) updateNight(0);
+      requestRender();
+    },
+    get night() { return state.night; },
+    get scenarios() {
+      return SCENARIOS.map((d) => ({ id: d.id, title: d.title, hint: d.hint, duration: +scenarioDuration(d).toFixed(1), sites: ['north', 'south'].filter((s) => scenarioAvailable(d, s)), available: scenarioAvailable(d) }));
+    },
+    get scenario() {
+      const sc = state.scenario;
+      if (!sc) return null;
+      const elapsed = Math.max(0, state.simTime - sc.t0);
+      return { id: sc.id, title: sc.title, progress: clamp(elapsed / sc.duration, 0, 1), elapsed: +elapsed.toFixed(2), duration: sc.duration };
+    },
+    runScenario,
+    objectInfo,
     resetView({ dur = 1.1 } = {}) {
       state.followId = null;
       state.atHome = true;
@@ -1453,7 +2114,7 @@ export async function createFarmScene(canvas, opts = {}) {
     },
     // Auto-tour: a medium shot of an object (its tour point if it has one), without selecting it.
     tourTo(objectId, { dist = 70, dur = 1.6 } = {}) {
-      if (state.disposed || state.selected || (state.flight && state.flight.arc)) return Promise.resolve(false);
+      if (state.disposed || state.selected || state.scenario || (state.flight && state.flight.arc)) return Promise.resolve(false);
       const f = findObject(objectId);
       if (!f) return Promise.resolve(false);
       let target, d = dist;
@@ -1482,8 +2143,10 @@ export async function createFarmScene(canvas, opts = {}) {
     },
     dispose() {
       if (state.disposed) return;
+      endScenario('cancel');
       state.disposed = true;
       stop();
+      setKeyboardEnabled(false);
       document.removeEventListener('visibilitychange', onVisibility);
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointerup', onPointerUp);
@@ -1491,6 +2154,7 @@ export async function createFarmScene(canvas, opts = {}) {
       canvas.removeEventListener('pointerleave', onPointerLeave);
       canvas.removeEventListener('pointercancel', onPointerCancel);
       canvas.removeEventListener('wheel', onWheelGuard);
+      canvas.removeEventListener('wheel', onWheelAfter);
       if (ro) ro.disconnect(); else window.removeEventListener('resize', resize);
       controls.dispose();
       const seen = new Set();
@@ -1505,6 +2169,7 @@ export async function createFarmScene(canvas, opts = {}) {
         }
       });
       for (const { texture } of pinTex.values()) texture.dispose();
+      for (const t of [beamTex, bulbTex]) t.dispose();
       envTex.dispose();
       try {
         const gl = renderer.getContext();
@@ -1514,7 +2179,7 @@ export async function createFarmScene(canvas, opts = {}) {
       renderer.dispose();
     },
     // debugging helpers (not part of the landing contract)
-    _debug: { HOME, FRAME_TALL, FRAME_WIDE, homeView: () => homeView(state.site), get insets() { return { target: targetInsets(), cur: insets() }; }, set noAdapt(v) { state.noAdapt = !!v; }, snow: snowPts, sun, sims, get scan() { return { ...scan, visible: beam.visible, alpha: beamMat.uniforms.uAlpha.value, scale: beam.scale.toArray(), pos: beam.position.toArray() }; }, get simTime() { return state.simTime; }, set simTime(v) { state.simTime = v; state.lastLt = ((v % LOOP) + LOOP) % LOOP; }, get sim() { return sim; }, renderer, camera, scene, controls },
+    _debug: { HOME, FRAME_TALL, FRAME_WIDE, homeView: () => homeView(state.site), get insets() { return { target: targetInsets(), cur: insets() }; }, set noAdapt(v) { state.noAdapt = !!v; }, snow: snowPts, sun, sims, get scan() { return { ...scan, visible: beam.visible, alpha: beamMat.uniforms.uAlpha.value, scale: beam.scale.toArray(), pos: beam.position.toArray() }; }, get simTime() { return state.simTime; }, set simTime(v) { state.simTime = v; state.loopOffset = 0; state.lastLt = ((v % LOOP) + LOOP) % LOOP; }, get loopTime() { return loopTime(); }, glow, stats, get nightK() { return state.nightK; }, envNight: ENV_NIGHT, applyEnv: () => applyWeather(state.weather), scenarioShot: (id) => scenarioShot(scenarioDef(id)), freeRect: () => freeRect(true), nightSets: () => Object.values(sites).map((s) => s.night), get sim() { return sim; }, renderer, camera, scene, controls },
   };
 
   start();

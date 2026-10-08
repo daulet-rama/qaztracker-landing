@@ -18,8 +18,17 @@ class Track {
   constructor(id, start = 0) {
     this.id = id; this.start = start; this.t = start;
     this.segs = []; this.vis = []; this.visFrom = null;
+    this.labels = [];
   }
   wait(dt) { this.t += dt; return this; }
+  // what the actor is doing from now on (tooltips): «едет к въезду», «идёт к проходной»…
+  say(label) { this.labels.push([this.t, label]); return this; }
+  labelAt(t) {
+    t = this.local(t);
+    let out = this.labels.length ? this.labels[0][1] : '';
+    for (const [a, label] of this.labels) { if (a <= t) out = label; else break; }
+    return out;
+  }
   show() { this.visFrom = this.t; return this; }
   hide() { this.vis.push([this.visFrom ?? this.start, this.t]); this.visFrom = null; return this; }
   move(points, { speed = 4, radius = 4, reverse = false, ease = 'inout' } = {}) {
@@ -89,14 +98,16 @@ export function createSimulation(siteId = 'north') {
   const feedDoor = [];    // [open, close]
   const officeDoor = [];  // [open, close]
   const baleOff = [];     // [unload, reload] times for the tractor bale
+  const keys = {};        // loop times of the key moments the «try it yourself» scenarios start from
   const ev = (t, data) => events.push({ t: norm(t), ...data });
 
   const plate = (t, id, result, direction) => {
     const v = VEHICLES[id];
     const plateNo = plateOf(id, siteId);
+    keys[`plate:${id}:${direction}`] = norm(t);
     ev(t - 1.35, { fx: [{ type: 'scan', at: direction === 'in' ? 'anprIn' : 'anprOut', vehicle: id }] });
     ev(t, {
-      emit: { type: 'plate', plate: plateNo, vehicle: v.vehicle, objectId: 'gate', result, direction },
+      emit: { type: 'plate', plate: plateNo, vehicle: v.vehicle, vehicleId: id, objectId: 'gate', result, direction },
       fx: [
         { type: 'ring', anchor: 'gateRing', tone: result === 'allowed' ? 'ok' : 'alarm', size: 6 },
         { type: 'pill', vehicle: id, lift: id === 'unknown-car' ? 3.2 : 4.6, tone: result === 'allowed' ? 'ok' : 'alarm',
@@ -109,8 +120,9 @@ export function createSimulation(siteId = 'north') {
   const face = (t, personId, point, objectId, anchor, ringPos, result) => {
     const p = PEOPLE[personId];
     const ok = result === 'allowed';
+    keys[`face:${personId}:${objectId}`] = norm(t);
     ev(t, {
-      emit: { type: 'face', person: ok ? p.name : 'Неизвестное лицо', point, objectId, result },
+      emit: { type: 'face', person: ok ? p.name : 'Неизвестное лицо', personId, point, objectId, result },
       fx: [
         { type: 'screen', anchor, tone: ok ? 'ok' : 'alarm' },
         { type: 'ring', pos: ringPos, tone: ok ? 'ok' : 'alarm', size: 3.2 },
@@ -126,22 +138,29 @@ export function createSimulation(siteId = 'north') {
   {
     const half = 4.2;
     const tr = new Track('feed-truck', -10);
-    tr.show();
+    tr.show().say('едет к въезду');
     tr.move([[100, LW], [GX, LW], [GX, STOP_IN + half]], { speed: 13, radius: 7, ease: 'out' });
+    tr.say('у шлагбаума, камера читает номер');
     const tp = tr.t + 1.0;
     plate(tp, 'feed-truck', 'allowed', 'in');
     tr.t = tp + 1.2;
     const bOpen = tp + 0.15;
+    tr.say('едет к складу кормов');
     tr.move([[GX, STOP_IN + half], [GX, TZ], [L.feedPark.x, TZ], [L.feedPark.x, L.feedPark.z]], { speed: 6.5, radius: 5 });
     barrier.push([bOpen, bOpen + 6.4]);
+    tr.say('разгружается у склада кормов');
     tr.wait(Math.max(4, 39 - tr.t));
+    tr.say('разворачивается');
     tr.move([[L.feedPark.x, L.feedPark.z], [L.feedPark.x, 1.6], [L.feedPark.x + 6, TZ]], { speed: 2.6, radius: 3.6, reverse: true });
     tr.wait(0.6);
+    tr.say('едет к выезду');
     tr.move([[L.feedPark.x + 6, TZ], [GX, TZ], [GX, STOP_OUT - half]], { speed: 6.5, radius: 5 });
+    tr.say('у шлагбаума на выезде');
     const tq = tr.t + 0.9;
     plate(tq, 'feed-truck', 'allowed', 'out');
     tr.t = tq + 1.2;
     barrier.push([tq + 0.15, tq + 6.0]);
+    tr.say('уезжает с фермы');
     tr.move([[GX, STOP_OUT - half], [GX, LW], [-125, LW]], { speed: 12, radius: 6, ease: 'in' });
     tr.finish();
     tracks['feed-truck'] = tr;
@@ -151,21 +170,28 @@ export function createSimulation(siteId = 'north') {
   {
     const half = 4.85;
     const tr = new Track('milk-truck', 0);
-    tr.wait(10).show();
+    tr.wait(10).show().say('едет к въезду');
     tr.move([[-125, LE], [GX, LE], [GX, STOP_IN + half]], { speed: 13, radius: 7, ease: 'out' });
+    tr.say('у шлагбаума, камера читает номер');
     const tp = tr.t + 1.0;
     plate(tp, 'milk-truck', 'allowed', 'in');
     barrier.push([tp + 0.15, tp + 6.6]);
     tr.t = tp + 1.2;
+    tr.say('едет к молочному блоку');
     tr.move([[GX, STOP_IN + half], [GX, TZ], [L.milkPark.x, TZ], [L.milkPark.x, L.milkPark.z]], { speed: 6.5, radius: 5 });
+    tr.say('забирает молоко');
     tr.wait(Math.max(4, 52 - tr.t));
+    tr.say('разворачивается');
     tr.move([[L.milkPark.x, L.milkPark.z], [L.milkPark.x, 1.4], [L.milkPark.x + 5.5, TZ]], { speed: 2.6, radius: 3.6, reverse: true });
     tr.wait(0.6);
+    tr.say('едет к выезду');
     tr.move([[L.milkPark.x + 5.5, TZ], [GX, TZ], [GX, STOP_OUT - half]], { speed: 6.5, radius: 5 });
+    tr.say('у шлагбаума на выезде');
     const tq = tr.t + 0.9;
     plate(tq, 'milk-truck', 'allowed', 'out');
     barrier.push([tq + 0.15, tq + 6.4]);
     tr.t = tq + 1.2;
+    tr.say('уезжает с фермы');
     tr.move([[GX, STOP_OUT - half], [GX, LE], [100, LE]], { speed: 13, radius: 7, ease: 'in' });
     tr.finish();
     tracks['milk-truck'] = tr;
@@ -175,13 +201,18 @@ export function createSimulation(siteId = 'north') {
   {
     const half = 2.2;
     const tr = new Track('unknown-car', 0);
-    tr.wait(36).show();
+    tr.wait(36).show().say('едет к въезду');
     tr.move([[-125, LE], [GX, LE], [GX, STOP_IN + half]], { speed: 14, radius: 6, ease: 'out' });
+    tr.say('у шлагбаума, камера читает номер');
     const tp = tr.t + 1.0;
     plate(tp, 'unknown-car', 'not_in_list', 'in');
+    tr.t = tp + 0.2;
+    tr.say('номера нет в списке, шлагбаум закрыт');
     tr.t = tp + 2.6;
+    tr.say('разворачивается');
     tr.move([[GX, STOP_IN + half], [GX, LW], [GX + 6, LW]], { speed: 3.2, radius: 4.2, reverse: true });
     tr.wait(0.5);
+    tr.say('уезжает');
     tr.move([[GX + 6, LW], [-125, LW]], { speed: 13, ease: 'in' });
     tr.finish();
     tracks['unknown-car'] = tr;
@@ -191,11 +222,16 @@ export function createSimulation(siteId = 'north') {
   {
     const tr = new Track('tractor', 0);
     const home = [44.5, -16.5];
+    tr.say('стоит у сеновала');
     tr.wait(31);
+    tr.say('везёт рулон сена к загону');
     tr.move([home, [44.5, 1.15], [-14.5, 1.15]], { speed: 5.4, radius: 3.4 });
     const tu = tr.t + 1.5;
+    tr.say('выгружает сено');
     tr.wait(0.9);
+    tr.say('возвращается к сеновалу');
     tr.move([[-14.5, 1.15], [-19.6, 1.15], [-19.6, 7.0], [47.6, 7.0], [47.6, -20.4], home.map((v, i) => i ? -20.4 : v), home], { speed: 5.4, radius: 2.4 });
+    tr.say('стоит у сеновала');
     const tl = tr.t - 0.5;
     baleOff.push([tu, tl]);
     tracks.tractor = tr;
@@ -209,12 +245,14 @@ export function createSimulation(siteId = 'north') {
   // worker-4 (Сауле): night shift leaves through the exit terminal
   {
     const tr = new Track('worker-4', 0);
-    tr.wait(2).show();
+    tr.wait(2).show().say('смена закончилась, идёт к проходной');
     walk(tr, [[L.barnDoor.x + 0.5, L.barnDoor.z], [L.barnDoor.x + 0.5, 10.7], [LX + 0.6, 10.7], [LX + 0.6, 33.2], [LX, 34.4]]);
+    tr.say('выходит по лицу');
     const tf = tr.t + 0.4;
     face(tf, 'worker-4', 'Проходная · выход', 'checkpoint', 'cpOut', [LX, 0.08, 34.4], 'allowed');
     pass(tf + 0.35, -1);
     tr.t = tf + 0.9;
+    tr.say('идёт к машине');
     walk(tr, [[LX, 34.4], [LX, 39.6], [LX + 0.6, 41.1], [20.3, 41.1], [20.3, 45.2]]);
     tr.finish();
     tracks['worker-4'] = tr;
@@ -222,37 +260,45 @@ export function createSimulation(siteId = 'north') {
   // worker-1 (Ерлан): arrives by car, enters, walks to the barn
   {
     const tr = new Track('worker-1', 0);
-    tr.wait(6.6).show();
+    tr.wait(6.6).show().say('приехал на смену, идёт к проходной');
     walk(tr, [[24.6, 45.4], [24.6, 42.9], [LX + 0.4, 42.9], [LX, 41.6], [LX, 38.4]]);
+    tr.say('проходит по лицу');
     const tf = tr.t + 0.4;
     face(tf, 'worker-1', 'Проходная · вход', 'checkpoint', 'cpIn', [LX, 0.08, 38.4], 'allowed');
     pass(tf + 0.35, 1);
     tr.t = tf + 0.9;
+    tr.say('идёт к коровнику');
     walk(tr, [[LX, 38.4], [LX, 33.6], [LX - 0.6, 32.4], [LX - 0.6, 9.7], [L.barnDoor.x - 0.5, 9.7], [L.barnDoor.x - 0.5, -8.5]]);
+    tr.say('проходит в молочный блок');
     const tb = tr.t + 0.4;
     face(tb, 'worker-1', 'Коровник · молочный блок', 'barn', 'barnTerm', [L.barnDoor.x - 0.5, 0.08, -8.5], 'allowed');
     tr.t = tb + 1.0;
     walk(tr, [[L.barnDoor.x - 0.5, -8.5], [L.barnDoor.x, L.barnDoor.z - 0.4]]);
+    tr.say('в коровнике');
     tr.finish();
     tracks['worker-1'] = tr;
   }
   // worker-2 (Айгуль): enters, goes to the office, ZKTeco terminal opens the door
   {
     const tr = new Track('worker-2', 0);
-    tr.wait(27).show();
+    tr.wait(27).show().say('идёт к проходной');
     walk(tr, [[32.8, 45.4], [32.8, 42.9], [LX + 0.4, 42.9], [LX, 41.6], [LX, 38.4]]);
+    tr.say('проходит по лицу');
     const tf = tr.t + 0.4;
     face(tf, 'worker-2', 'Проходная · вход', 'checkpoint', 'cpIn', [LX, 0.08, 38.4], 'allowed');
     pass(tf + 0.35, 1);
     tr.t = tf + 0.9;
+    tr.say('идёт в контору');
     // west office: she hurries across the driveway between the feed truck and the milk truck
     walk(tr, [[LX, 38.4], [LX, 33.6], [LX - 0.6, 32.4], [LX - 0.6, WZ - 0.5], [OF.doorX, WZ - 0.5], [OF.doorX, OF.z1 + 1.2]], WEST ? 2.2 : W);
+    tr.say('открывает контору по лицу');
     const to = tr.t + 0.4;
     face(to, 'worker-2', 'Контора', 'office', 'officeTerm', [OF.doorX, 0.08, OF.z1 + 1.2], 'allowed');
     ev(to + 0.35, { emit: { type: 'door', objectId: 'office', state: 'open' }, fx: [] });
     officeDoor.push([to + 0.35, to + 4.6]);
     tr.t = to + 1.0;
     walk(tr, [[OF.doorX, OF.z1 + 1.2], [OF.doorX, OF.z1 - 1.6]]);
+    tr.say('в конторе');
     tr.finish();
     ev(to + 4.6 + 0.8, { emit: { type: 'door', objectId: 'office', state: 'closed' }, fx: [] });
     tracks['worker-2'] = tr;
@@ -260,8 +306,9 @@ export function createSimulation(siteId = 'north') {
   // stranger: not in the database, denied at the checkpoint, walks away
   {
     const tr = new Track('stranger', 0);
-    tr.wait(57).show();
+    tr.wait(57).show().say('идёт к проходной');
     walk(tr, [[-6, 49.3], [4, 49.3], [LX, 44.5], [LX, 38.4]]);
+    tr.say('лица нет в базе, турникет закрыт');
     const tf = tr.t + 0.4;
     face(tf, 'stranger', 'Проходная · вход', 'checkpoint', 'cpIn', [LX, 0.08, 38.4], 'denied');
     ev(tf + 0.6, {
@@ -269,6 +316,7 @@ export function createSimulation(siteId = 'north') {
       fx: [{ type: 'alarm', objectId: 'checkpoint' }],
     });
     tr.t = tf + 3.0;
+    tr.say('уходит');
     walk(tr, [[LX, 38.4], [LX, 44.5], [4, 49.3], [-6, 49.3]], 1.9);
     tr.finish();
     tracks.stranger = tr;
@@ -276,14 +324,16 @@ export function createSimulation(siteId = 'north') {
   // worker-3 (Данияр): from the barn to the feed store, Face ID opens the roller door
   {
     const tr = new Track('worker-3', 0);
-    tr.wait(61.5).show();
+    tr.wait(61.5).show().say('идёт к складу кормов');
     walk(tr, [[L.barnDoor.x, L.barnDoor.z], [L.barnDoor.x, -7.6], [34.3, -7.6], [34.3, -10.1]], 1.9);
+    tr.say('открывает склад по лицу');
     const tf = tr.t + 0.4;
     face(tf, 'worker-3', 'Склад кормов', 'feed', 'feedTerm', [34.3, 0.08, -10.1], 'allowed');
     ev(tf + 0.35, { emit: { type: 'door', objectId: 'feed', state: 'open' }, fx: [] });
     feedDoor.push([tf + 0.35, tf + 5.3]);
     tr.t = tf + 1.9;
     walk(tr, [[34.3, -10.1], [31.2, -11.2], [30.6, -14.5]], 1.9);
+    tr.say('на складе кормов');
     tr.finish();
     ev(tf + 5.3 + 1.6, { emit: { type: 'door', objectId: 'feed', state: 'closed' }, fx: [] });
     tracks['worker-3'] = tr;
@@ -294,11 +344,14 @@ export function createSimulation(siteId = 'north') {
     tr.wait(WEST ? 12 : 3).show();
     const mid = WEST ? [[3.5, WZ + 0.4], [12.2, 13.2]] : [[22, WZ + 0.4], [14.2, 9.8]];
     const route = [[OF.doorX, OF.z1 + 1.0], [OF.doorX, WZ + 0.4], ...mid, [12.2, 9.8], [12.2, -10.6], [11.5, -11.4]];
+    tr.say('идёт в молочный блок');
     if (WEST) walk(tr, route, 1.8); // the long way from the west office: one trip per loop
     else {
       walk(tr, route, 1.6);
+      tr.say('в молочном блоке');
       tr.hide();
       tr.wait(Math.max(2, 57.5 - tr.t)).show();
+      tr.say('возвращается в контору');
       walk(tr, route.slice().reverse(), 1.6);
     }
     tr.finish();
@@ -308,13 +361,15 @@ export function createSimulation(siteId = 'north') {
   {
     const t0 = OF.doorX > LX ? 36 : 24;
     const tr = new Track('worker-6', 0);
-    tr.wait(t0).show();
+    tr.wait(t0).show().say('идёт к проходной');
     officeDoor.push([t0 - 0.6, t0 + 1.6]);
     walk(tr, [[OF.doorX, OF.z1 + 0.6], [OF.doorX, WZ + 0.5], [LX + 0.6, WZ + 0.5], [LX + 0.6, 33.2], [LX, 34.4]]);
+    tr.say('выходит по лицу');
     const tf = tr.t + 0.4;
     face(tf, 'worker-6', 'Проходная · выход', 'checkpoint', 'cpOut', [LX, 0.08, 34.4], 'allowed');
     pass(tf + 0.35, -1);
     tr.t = tf + 0.9;
+    tr.say('идёт к машине');
     walk(tr, [[LX, 34.4], [LX, 39.6], [LX + 0.6, 41.1], [26.3, 41.1], [26.3, 45.2]]);
     tr.finish();
     tracks['worker-6'] = tr;
@@ -322,6 +377,7 @@ export function createSimulation(siteId = 'north') {
   // guard stands at the gate booth
   {
     const tr = new Track('guard', 0);
+    tr.say('дежурит у въезда');
     tr.move([[-30.2, 34.4], [-30.15, 34.6]], { speed: 1, ease: 'linear' });
     tracks.guard = tr;
   }
@@ -335,6 +391,7 @@ export function createSimulation(siteId = 'north') {
     tr.finish();
     tracks.fox = tr;
     const tc = tr.find(40, 60, (o) => o.x <= L.fence.x1 - 1.0);
+    keys.perimeter = norm(tc);
     ev(tc, {
       emit: { type: 'alarm', kind: 'line_crossing', where: 'Периметр · восточная сторона', objectId: 'perimeter-cam' },
       fx: [
@@ -347,6 +404,11 @@ export function createSimulation(siteId = 'north') {
   }
 
   events.sort((a, b) => a.t - b.t);
+
+  // Net people through the checkpoint at loop time t (entries − exits since t = 0); 0 again at the end of the loop.
+  const heads = events.filter((e) => e.emit && e.emit.type === 'face' && e.emit.objectId === 'checkpoint' && e.emit.result === 'allowed')
+    .map((e) => [e.t, /выход/i.test(e.emit.point) ? -1 : 1]);
+  const headAt = (t) => { let n = 0; for (const [a, d] of heads) if (a <= t) n += d; return n; };
 
   // ---------------------------------------------- props as functions of loop time
   const ramp = (t, a, b, up = 1.0, down = 1.2) => {
@@ -382,7 +444,7 @@ export function createSimulation(siteId = 'north') {
     },
   };
 
-  return { LOOP, tracks, events, props, debug: { barrier, turnstile, feedDoor, officeDoor, baleOff } };
+  return { LOOP, tracks, events, props, keys, headAt, debug: { barrier, turnstile, feedDoor, officeDoor, baleOff } };
 }
 
 function capital(s) { return s.charAt(0).toUpperCase() + s.slice(1); }

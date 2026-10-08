@@ -1,8 +1,9 @@
 // QazTracker Vision — 3D farm scene: static world (ground, roads, buildings, fence, trees)
 // and the animated fixtures of one farm site (barrier, turnstile, doors, terminal screens, LEDs).
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
-  Kit, rng, noise2, smooth, clamp, ACCENT, softShadowTexture,
+  Kit, rng, noise2, smooth, clamp, ACCENT, softShadowTexture, poolTexture,
 } from './scene-kit.js';
 import { sedanParts, baleParts, createCows, createSheep } from './scene-actors.js';
 
@@ -157,6 +158,7 @@ export function buildSite(siteId, ctx) {
   const parts = {};
   const objects = [];
   const inst = { pines: [], poplars: [], rounds: [], bales: [], posts: [], banks: [] };
+  const nightCams = [];
 
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
   // soft contact shadow under buildings (on top of the real shadow map, so every object sits on the ground)
@@ -220,6 +222,7 @@ export function buildSite(siteId, ctx) {
 
   // ---------------------------------------------------------- barn (коровник)
   {
+    k.tag('barn');
     const { x0, x1, z0, z1 } = L.barn;
     const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, W = x1 - x0, D = z1 - z0, H = 4.4, rise = 2.6;
     k.rbox(W + 0.3, 0.85, D + 0.3, T.plinth, { x: cx, z: cz, r: 0.12 });
@@ -274,6 +277,7 @@ export function buildSite(siteId, ctx) {
     if (snow) k.rbox(3.4, 0.14, 0.9, SNOW, { x: 12, y: 3.24, z: -8, r: 0.06 });
     k.beam([11.5, 1.2, -11.9], [11.5, 1.2, -9.0], 0.09, T.steel);
     shadowRect(12, -8, 7.5, 3.6, 0.28);
+    k.tag(null);
     // silos
     for (const sz of [-20.5, -14.2]) {
       const sx = -41.5;
@@ -330,6 +334,7 @@ export function buildSite(siteId, ctx) {
   // ---------------------------------------------------------- feed store (склад кормов)
   {
     const { cx, z0, z1, r } = L.feed, len = z1 - z0, cz = (z0 + z1) / 2;
+    k.tag('feed');
     k.rbox(2 * r + 0.4, 0.45, len + 0.4, T.plinth, { x: cx, z: cz, r: 0.1 });
     k.cyl(r, r, len, T.hangar, { x: cx, y: 0.4, z: cz, rx: PI / 2, center: true, open: true, thetaStart: PI / 2, theta: PI, seg: 30, mat: 'ribbed' });
     for (const rz of [z1 - 0.2, cz + 5.4, cz, cz - 5.4, z0 + 0.2]) k.torus(r + 0.06, 0.1, T.green, { x: cx, y: 0.4, z: rz, arc: PI, ts: 4, rs: 30 });
@@ -341,6 +346,7 @@ export function buildSite(siteId, ctx) {
     k.rbox(7.4, 5.7, 0.3, T.green, { x: cx, y: 0.35, z: z1 + 0.05, r: 0.08 });
     k.rbox(6.6, 5.1, 0.1, '#2A3037', { x: cx, y: 0.42, z: z1 + 0.22 });
     k.rbox(7.1, 0.55, 0.55, T.greenDark, { x: cx, y: 5.25, z: z1 + 0.42, r: 0.12 });
+    k.tag(null);
     shadowRect(cx, cz, 2 * r + 5, len + 5, 0.36);
     // hay storage: two layers of round bales
     for (let ix = 0; ix < 4; ix++) for (let iz = 0; iz < 6; iz++) inst.bales.push({ x: 42.2 + ix * 1.9, y: 0, z: -33.6 + iz * 1.9, ry: PI / 2 });
@@ -352,6 +358,7 @@ export function buildSite(siteId, ctx) {
   {
     const { x0, x1, z0, z1, doorX } = OF;
     const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, W = x1 - x0, D = z1 - z0, H = 3.6, rise = 1.9;
+    k.tag('office');
     k.rbox(W + 0.3, 0.5, D + 0.3, T.plinth, { x: cx, z: cz, r: 0.1 });
     k.rbox(W, H - 0.4, D, T.wallWarm, { x: cx, y: 0.4, z: cz, r: 0.1 });
     const wxs = doorX - x0 < W / 2 ? [x0 + 6.4, x0 + 8.6] : [x0 + 1.3, x0 + 6.4, x0 + 8.6];
@@ -379,6 +386,7 @@ export function buildSite(siteId, ctx) {
     shadowRect(cx, cz, W + 4, D + 4, 0.34);
     // ZKTeco terminal (wall-mounted) next to the door
     k.rbox(0.46, 0.68, 0.1, '#1E2329', { x: doorX + 1.25, y: 1.25, z: z1 + 0.06, r: 0.05 });
+    k.tag(null);
     anchors.officeTerm = V(doorX + 1.25, 1.6, z1 + 0.13);
     parts.officeScreen = screenMesh(0.34, 0.42, anchors.officeTerm, 0);
   }
@@ -386,6 +394,7 @@ export function buildSite(siteId, ctx) {
   // ---------------------------------------------------------- checkpoint (проходная) + processor
   {
     // booth
+    k.tag('checkpoint');
     k.rbox(5.2, 0.4, 7.2, T.plinth, { x: 4.5, z: 36, r: 0.08 });
     k.rbox(5, 2.95, 7, T.wall, { x: 4.5, y: 0.35, z: 36, r: 0.12 });
     k.rbox(2.4, 1.2, 0.1, T.glass, { x: 3.4, y: 1.45, z: 39.52, r: 0.04, mat: 'glass' });
@@ -420,11 +429,13 @@ export function buildSite(siteId, ctx) {
     parts.cpOutScreen = screenMesh(0.36, 0.46, anchors.cpOut, PI);
     anchors.turnstile = V(10.62, 1.0, 36);
     // processor cabinet on the booth wall (faces the road)
+    k.tag('processor');
     k.rbox(0.95, 1.15, 0.38, '#D2D8DF', { x: 5.9, y: 1.0, z: 39.68, r: 0.06 });
     k.rbox(0.8, 0.95, 0.04, '#B9C1CA', { x: 5.9, y: 1.1, z: 39.88, r: 0.02 });
     k.rbox(0.36, 0.08, 0.05, '#2E3742', { x: 5.78, y: 1.75, z: 39.9 });
     k.box(0.08, 1.0, 0.08, '#9AA4AE', { x: 6.25, y: 0, z: 39.62 });
     k.cyl(0.03, 0.03, 0.7, '#59626D', { x: 5.6, y: 2.12, z: 39.66, seg: 5 });
+    k.tag(null);
     anchors.processor = V(6.15, 1.95, 39.92);
     anchors.processorTop = V(5.6, 2.8, 39.66);
     parts.led = ledMesh(anchors.processor);
@@ -433,6 +444,7 @@ export function buildSite(siteId, ctx) {
   // ---------------------------------------------------------- gate (въезд): pillars, barrier, ANPR, guard booth, sign
   {
     const gx = L.gateX;
+    k.tag('gate');
     for (const px of [gx - 4.6, gx + 4.6]) {
       k.rbox(0.9, 2.8, 0.9, T.wall, { x: px, z: 36, r: 0.12 });
       k.rbox(1.06, 0.26, 1.06, T.green, { x: px, y: 2.8, z: 36, r: 0.08 });
@@ -463,6 +475,7 @@ export function buildSite(siteId, ctx) {
     k.rbox(4.0, 0.36, 4.0, T.green, { x: bx, y: 2.95, z: bz, r: 0.12 });
     if (snow) k.rbox(2.6, 0.22, 2.6, SNOW, { x: bx, y: 3.29, z: bz, r: 0.1 });
     shadowRect(bx, bz, 5.4, 5.4, 0.3);
+    k.tag(null);
     // farm sign by the road
     for (const px of [-35.2, -28.8]) k.cyl(0.12, 0.12, 3.3, T.pole, { x: px, z: 47, seg: 8 });
     k.rbox(7.0, 1.55, 0.24, T.green, { x: -32, y: 1.75, z: 47, r: 0.12 });
@@ -532,7 +545,7 @@ export function buildSite(siteId, ctx) {
   });
 
   // ---------------------------------------------------------- street lamps
-  for (const [lx, lz, ry] of [[-14, 8.6, 0], [16, 8.6, 0], [38.5, 8.6, 0], [-29.2, 22, -PI / 2], [-29.2, 46.4, -PI / 2]]) {
+  for (const [lx, lz, ry] of LAMPS) {
     k.cyl(0.09, 0.12, 6.2, '#7D8894', { x: lx, z: lz, seg: 8 });
     k.push({ x: lx, y: 6.0, z: lz, ry });
     k.rbox(1.4, 0.1, 0.12, '#7D8894', { x: 0, z: -0.65, ry: PI / 2 });
@@ -550,6 +563,7 @@ export function buildSite(siteId, ctx) {
       [[F.x1, F.z0], [F.x0, F.z0]],
       [[F.x0, F.z0], [F.x0, F.z1]],
     ];
+    k.tag('perimeter');
     for (const [[ax, az], [bx, bz]] of segs) {
       const len = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.round(len / 3.2));
       const ang = Math.atan2(bz - az, bx - ax), mx = (ax + bx) / 2, mz = (az + bz) / 2;
@@ -571,6 +585,7 @@ export function buildSite(siteId, ctx) {
       { x: F.x0 - 0.9, z: F.z0 - 0.9, yaw: -PI * 0.25, h: 5.0 },
     ];
     for (const c of cams) {
+      k.tag(c.id || 'perimeter');
       k.cyl(0.12, 0.15, c.h, T.pole, { x: c.x, z: c.z, seg: 10 });
       k.push({ x: c.x, y: c.h - 0.35, z: c.z, ry: c.yaw });
       k.rbox(0.18, 0.4, 0.18, '#E9EDF1', { y: 0, r: 0.05 });
@@ -583,6 +598,8 @@ export function buildSite(siteId, ctx) {
         anchors.perimCam = V(c.x + fx * 0.8, c.h - 0.23, c.z + fz * 0.8);
       }
     }
+    k.tag(null);
+    nightCams.push(...cams);
     // the virtual line on the ground along the east fence + camera view wedge
     parts.vline = vlineMesh(F.x1 - 1.0, 16, -32);
     parts.wedge = wedgeMesh(V(F.x1 + 0.9, 0.05, 22), F.x1 - 7.5, F.x1 + 1.0, -32);
@@ -627,6 +644,7 @@ export function buildSite(siteId, ctx) {
   }
 
   // ---------------------------------------------------------- build static meshes
+  const hl = k.tagGeometries();
   const staticGroup = k.build(mats);
   staticGroup.name = 'static';
   group.add(staticGroup);
@@ -714,7 +732,176 @@ export function buildSite(siteId, ctx) {
   );
   for (const o of objects) o.site = siteId;
 
-  return { id: siteId, theme: T, group, anchors, parts, objects };
+  // night lighting: only added overlays (window glow, lamp bulbs, light pools, IR cones), hidden by day
+  const night = buildNight(LS, nightCams);
+  group.add(night.group);
+
+  return { id: siteId, theme: T, group, anchors, parts, objects, hl, night };
+}
+
+// ---------------------------------------------------------------- night overlay
+// Street lamps [x, z, ry] — shared by the lamp models and the night lights under their heads.
+export const LAMPS = [[-14, 8.6, 0], [16, 8.6, 0], [38.5, 8.6, 0], [-29.2, 22, -PI / 2], [-29.2, 46.4, -PI / 2]];
+const lampHead = ([lx, lz, ry]) => ({ x: lx - Math.sin(ry) * 1.35, z: lz - Math.cos(ry) * 1.35 });
+
+let _poolTex = null, _dotTex = null;
+// IR: the perimeter cameras' night beams are a dim cool violet; red stays for alarms (only the small LEDs are red)
+const WARM = '#FFD486', WARM_DIM = '#D9A85E', LAMP = '#FFB45E', COOL = '#D3E3FF', IR = '#8C82FF';
+
+// Lit windows, lamp bulbs, soft pools of light on the ground and the perimeter cameras' IR cones.
+// Everything is a few merged meshes with unlit materials (no real lights, no shadows), faded by set(k).
+function buildNight(LS, cams) {
+  const OF = LS.office, B = L.barn, FD = L.feed;
+  const group = new THREE.Group();
+  group.name = 'night';
+  group.visible = false;
+  _poolTex = _poolTex || poolTexture(128);
+  _dotTex = _dotTex || poolTexture(64);
+  const c = new THREE.Color();
+
+  // ---- lit windows: quads just in front of the glass (normal blending, warm, unlit)
+  const quads = [];
+  const quad = (x, y, z, w, h, face, color = WARM) => quads.push({ x, y, z, w, h, face, color });
+  {
+    const { x0, x1, z0, z1, doorX } = OF, W = x1 - x0;
+    const wxs = doorX - x0 < W / 2 ? [x0 + 6.4, x0 + 8.6] : [x0 + 1.3, x0 + 6.4, x0 + 8.6];
+    for (const wx of wxs) quad(wx, 2.1, z1 + 0.085, 1.16, 1.16, '+z');
+    for (const wz of [z0 + 1.8, z0 + 5.2]) quad(x1 + 0.085, 2.1, wz, 1.16, 1.16, '+x');
+  }
+  quad(3.4, 2.05, 39.585, 2.26, 1.06, '+z');                 // checkpoint booth
+  quad(7.085, 2.05, 38.2, 1.66, 1.06, '+x');
+  {
+    const bx = -33, bz = 31.8, o = 1.755;                     // guard booth glass band
+    quad(bx, 1.825, bz + o, 3.1, 0.8, '+z'); quad(bx, 1.825, bz - o, 3.1, 0.8, '-z');
+    quad(bx + o, 1.825, bz, 3.1, 0.8, '+x'); quad(bx - o, 1.825, bz, 3.1, 0.8, '-x');
+  }
+  quad(15.085, 2.2, -16, 2.06, 0.86, '+x');                   // milk room
+  quad(15.085, 2.2, -19.6, 2.06, 0.86, '+x');
+  {
+    const cx = (B.x0 + B.x1) / 2, w = B.x1 - B.x0 - 3.2;       // barn: light through the curtain band
+    quad(cx, 2.82, B.z1 + 0.065, w, 0.98, '+z', WARM_DIM);
+    quad(cx, 2.82, B.z0 - 0.065, w, 0.98, '-z', WARM_DIM);
+  }
+  quad(FD.cx, 2.97, FD.z1 + 0.285, 6.4, 4.9, '+z', '#FFC36B'); // feed store inside: seen only while the roller door is up
+  const qGeos = quads.map(({ x, y, z, w, h, face, color }) => {
+    const g = new THREE.PlaneGeometry(w, h);
+    if (face === '-z') g.rotateY(PI);
+    if (face === '+x') g.rotateY(PI / 2);
+    if (face === '-x') g.rotateY(-PI / 2);
+    g.translate(x, y, z);
+    paintGeo(g, c.set(color));
+    return g;
+  });
+  const windows = new THREE.Mesh(mergeGeometries(qGeos, false), new THREE.MeshBasicMaterial({
+    vertexColors: true, transparent: true, opacity: 0, depthWrite: false, toneMapped: false,
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+  }));
+  windows.renderOrder = 3;
+  windows.name = 'night-windows';
+  group.add(windows);
+
+  // ---- light pools on the ground (additive) and the bulbs that cast them
+  const pools = [], bulbs = [];
+  for (const l of LAMPS) {
+    const h = lampHead(l);
+    pools.push({ x: h.x, z: h.z, r: 7.2, color: LAMP, k: 0.62 });
+    bulbs.push({ x: h.x, y: 5.92, z: h.z, s: 2.6, color: '#FFE2B0' });
+  }
+  pools.push({ x: 10, z: 36, r: 5.2, color: COOL, k: 0.5 });                   // checkpoint canopy
+  bulbs.push({ x: 10, y: 3.25, z: 36, s: 1.9, color: '#EAF2FF' });
+  pools.push({ x: L.gateX, z: 39.4, r: 6.6, color: COOL, k: 0.42 });            // gate floodlight on the camera arms
+  for (const pz of [31.72, 41.08]) bulbs.push({ x: L.gateX + 2.6, y: 3.9, z: pz, s: 1.1, color: '#EAF2FF' });
+  pools.push({ x: OF.doorX, z: OF.z1 + 1.7, r: 4.2, color: WARM, k: 0.55 });    // office porch
+  bulbs.push({ x: OF.doorX, y: 2.96, z: OF.z1 + 0.75, s: 1.5, color: '#FFE2B0' });
+  pools.push({ x: L.barnDoor.x, z: B.z1 + 1.9, r: 4.0, color: WARM, k: 0.5 });  // milk block door
+  bulbs.push({ x: L.barnDoor.x, y: 3.05, z: B.z1 + 0.6, s: 1.4, color: '#FFE2B0' });
+  pools.push({ x: FD.cx, z: FD.z1 + 3.2, r: 6.0, color: COOL, k: 0.42 });       // feed store front
+  bulbs.push({ x: FD.cx, y: 5.6, z: FD.z1 + 0.75, s: 1.7, color: '#EAF2FF' });
+  pools.push({ x: -33 + 2.5, z: 31.8 - 0.9, r: 3.2, color: WARM, k: 0.42 });    // guard booth door
+  const pGeos = pools.map(({ x, z, r, color, k }) => {
+    const g = new THREE.PlaneGeometry(r * 2, r * 2);
+    g.rotateX(-PI / 2);
+    g.translate(x, 0.085, z);
+    paintGeo(g, c.set(color).multiplyScalar(k));
+    return g;
+  });
+  const poolMesh = new THREE.Mesh(mergeGeometries(pGeos, false), new THREE.MeshBasicMaterial({
+    map: _poolTex, vertexColors: true, transparent: true, opacity: 0, depthWrite: false, toneMapped: false,
+    blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  }));
+  poolMesh.renderOrder = 2;
+  poolMesh.name = 'night-pools';
+  group.add(poolMesh);
+
+  // ---- IR cones of the perimeter cameras + their IR LEDs
+  const irGeos = [];
+  for (const cam of cams) {
+    const fx = Math.cos(cam.yaw), fz = -Math.sin(cam.yaw);
+    const lens = new THREE.Vector3(cam.x + fx * 0.86, cam.h - 0.23, cam.z + fz * 0.86);
+    const dir = new THREE.Vector3(fx, -0.42, fz).normalize();
+    const len = 15, g = new THREE.ConeGeometry(4.6, len, 24, 1, true);
+    g.translate(0, -len / 2, 0);                         // apex at the origin, opening along -y
+    g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir));
+    g.translate(lens.x, lens.y, lens.z);
+    const n = g.attributes.position.count, along = new Float32Array(n);
+    for (let i = 0; i < n; i++) along[i] = Math.min(1, new THREE.Vector3().fromBufferAttribute(g.attributes.position, i).distanceTo(lens) / len);
+    g.setAttribute('aAlong', new THREE.BufferAttribute(along, 1));
+    g.deleteAttribute('uv');
+    irGeos.push(g);
+    bulbs.push({ x: lens.x, y: lens.y, z: lens.z, s: 0.9, color: '#FF6B86' });
+  }
+  const irMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+    uniforms: { uColor: { value: new THREE.Color(IR) }, uK: { value: 0 } },
+    vertexShader: 'attribute float aAlong; varying float vA; void main(){ vA = aAlong; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'uniform vec3 uColor; uniform float uK; varying float vA; void main(){ float a = uK * 0.05 * pow(1.0 - vA, 1.8) * smoothstep(0.0, 0.08, vA); gl_FragColor = vec4(uColor, a); }',
+  });
+  const ir = new THREE.Mesh(mergeGeometries(irGeos, false), irMat);
+  ir.renderOrder = 4;
+  ir.name = 'night-ir';
+  group.add(ir);
+
+  // ---- bulbs: world-sized soft dots (one draw call)
+  const bulbGeo = new THREE.BufferGeometry();
+  bulbGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(bulbs.flatMap((b) => [b.x, b.y, b.z])), 3));
+  bulbGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(bulbs.flatMap((b) => c.set(b.color).toArray())), 3));
+  bulbGeo.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(bulbs.map((b) => b.s)), 1));
+  const bulbMat = bulbMaterial(_dotTex);
+  const bulbPts = new THREE.Points(bulbGeo, bulbMat);
+  bulbPts.renderOrder = 10;
+  bulbPts.frustumCulled = false;
+  bulbPts.name = 'night-bulbs';
+  group.add(bulbPts);
+
+  return {
+    group, bulbMaterial: bulbMat,
+    set(k) {
+      group.visible = k > 0.002;
+      windows.material.opacity = k;
+      poolMesh.material.opacity = k;
+      irMat.uniforms.uK.value = k;
+      bulbMat.uniforms.uK.value = k;
+    },
+  };
+}
+
+function paintGeo(g, color) {
+  const n = g.attributes.position.count, a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { a[i * 3] = color.r; a[i * 3 + 1] = color.g; a[i * 3 + 2] = color.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+  return g;
+}
+
+// Additive soft dots with a size in world units: aSize metres across. uPx = canvas height in px / (2·tan(fov/2)).
+export function bulbMaterial(tex) {
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending, vertexColors: true,
+    uniforms: { uTex: { value: tex }, uK: { value: 0 }, uPx: { value: 800 } },
+    vertexShader: `attribute float aSize; uniform float uPx; varying vec3 vC;
+      void main(){ vC = color; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = clamp(aSize * uPx / -mv.z, 2.0, 64.0); }`,
+    fragmentShader: `uniform sampler2D uTex; uniform float uK; varying vec3 vC;
+      void main(){ float a = texture2D(uTex, gl_PointCoord).a; gl_FragColor = vec4(vC, a * uK); }`,
+  });
 }
 
 // ---------------------------------------------------------------- fixture builders
