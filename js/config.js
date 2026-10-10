@@ -8,10 +8,10 @@
  *   email     — почта, например "sales@qaztracker.kz"
  */
 export const CONTACT = {
-  phone: "",
-  whatsapp: "",
+  phone: "+7 776 628 58 82",
+  whatsapp: "77766285882",
   telegram: "",
-  email: "",
+  email: "qaztracker@gmail.com",
 };
 
 /* Тексты и данные демо-фермы. Всё, что ниже, видно только в демонстрации на главном экране. */
