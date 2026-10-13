@@ -10,7 +10,7 @@ const HEAD = '#FFF3D1';
 const TAIL = '#E5484D';
 const CHASSIS = '#3B424C';
 const WHITE = '#F5F7F9';
-const GREEN = '#23885A';
+const GREEN = '#4C763B';
 const SNOW = '#F8FAFD';
 
 function wheel(k, x, z, r, w, hub = HUB) {

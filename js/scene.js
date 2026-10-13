@@ -169,7 +169,7 @@ const FRAME_TALL_S = [
 ];
 const FRAMES = { north: { wide: FRAME_WIDE, tall: FRAME_TALL }, south: { wide: FRAME_WIDE_S, tall: FRAME_TALL_S } };
 const CLOUD_LABEL = { title: 'Облако в Казахстане', subtitle: 'шифрованный канал от процессора', tone: 'accent' };
-const LED_GREEN = new THREE.Color('#2BD67B');
+const LED_GREEN = new THREE.Color('#B0CE88');
 const TONE = { ok: '#17B26A', alarm: '#F04438', accent: '#1E9E5E', cmd: '#0E9F6E' };
 
 function webgl2Available() {
@@ -1253,8 +1253,8 @@ export async function createFarmScene(canvas, opts = {}) {
     for (const id of ['north', 'south']) for (const sp of pins[id]) if (sp.userData.objectId === objectId) sp.material.map = getPinTex('#1E7B4C', sp.userData.icon).texture;
     if (objectId === 'perimeter-cam') {
       for (const id of ['north', 'south']) {
-        sites[id].parts.vline.material.uniforms.uColor.value.set('#2BD67B');
-        sites[id].parts.wedge.material.uniforms.uColor.value.set('#2BD67B');
+        sites[id].parts.vline.material.uniforms.uColor.value.set('#B0CE88');
+        sites[id].parts.wedge.material.uniforms.uColor.value.set('#B0CE88');
         sites[id].parts.wedge.material.uniforms.uAlpha.value = 0.16;
       }
     }

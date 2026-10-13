@@ -46,10 +46,10 @@ export const THEMES = {
     id: 'north', snow: true,
     yard: '#DCE3EB', yardRoad: '#BFC8D4', road: '#9DA9B8', walk: '#CCD4DE', pad2: '#D6DDE6', pen: '#D8DEE6',
     marking: '#FFFFFF', snowC: '#F8FAFD', wall: '#F1F3F6', wallWarm: '#F2EFE9', plinth: '#C3CAD3',
-    green: '#23885A', greenDark: '#1A6A45', roof: '#23885A', curtain: '#E2E9F0', glass: '#3F566A',
+    green: '#4C763B', greenDark: '#043915', roof: '#4C763B', curtain: '#E2E9F0', glass: '#3F566A',
     steel: '#B7C0CA', steelLight: '#E7EBEF', silo: '#DCE1E7', siloBand: '#AFB8C2', hangar: '#DDE3E9',
     pole: '#8C97A4', wood: '#9A7455', door: '#F4F6F8', rail: '#97A3AF', panel: '#D5DDE6',
-    hay: '#D9B864', trunk: '#76584A', pine: '#2D6A4D', pine2: '#27603F', tree: 'pine',
+    hay: '#D9B864', trunk: '#76584A', pine: '#4C763B', pine2: '#043915', tree: 'pine',
     cars: ['#3B5B92', '#B8BEC6', '#7A2E35', '#EDEFF2'],
     sign: 'Ферма «Север»',
   },
@@ -57,10 +57,10 @@ export const THEMES = {
     id: 'south', snow: false,
     yard: '#E4D8BD', yardRoad: '#D3CAB7', road: '#B6B0A7', walk: '#E0D7C6', pad2: '#D9CDB2', pen: '#CDB993',
     marking: '#FFFFFF', snowC: '#F8FAFD', wall: '#F3F2EE', wallWarm: '#F4EFE6', plinth: '#C9C2B4',
-    green: '#23885A', greenDark: '#1A6A45', roof: '#23885A', curtain: '#E9ECEA', glass: '#3F566A',
+    green: '#4C763B', greenDark: '#043915', roof: '#4C763B', curtain: '#E9ECEA', glass: '#3F566A',
     steel: '#B9C0C7', steelLight: '#E8EBEE', silo: '#E1E3E3', siloBand: '#B4B9BD', hangar: '#E1E5E8',
     pole: '#8E8F94', wood: '#9A7455', door: '#F4F6F8', rail: '#9A9FA6', panel: '#DDDFDF',
-    hay: '#DDBB66', trunk: '#7A5B45', poplar: '#5C9A47', poplar2: '#4E8A3E', round: '#6FAA52', tree: 'poplar',
+    hay: '#DDBB66', trunk: '#7A5B45', poplar: '#4C763B', poplar2: '#043915', round: '#B0CE88', tree: 'poplar',
     cars: ['#3B5B92', '#C9CDD2', '#F2F2F0', '#2F3A44'],
     sign: 'Ферма «Юг»',
   },
@@ -915,11 +915,11 @@ function screenMesh(w, h, pos, ry) {
 }
 
 function ledMesh(pos) {
-  const mat = new THREE.MeshBasicMaterial({ color: '#2BD67B', toneMapped: false });
+  const mat = new THREE.MeshBasicMaterial({ color: '#B0CE88', toneMapped: false });
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), mat);
   mesh.position.copy(pos);
   const halo = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshBasicMaterial({
-    color: '#2BD67B', transparent: true, opacity: 0.45, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending,
+    color: '#B0CE88', transparent: true, opacity: 0.45, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending,
     map: haloTexture(),
   }));
   halo.position.set(0, 0, 0.04);
@@ -945,7 +945,7 @@ function vlineMesh(x, z0, z1) {
   geo.rotateX(-PI / 2);
   const mat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, toneMapped: false,
-    uniforms: { uColor: { value: new THREE.Color('#2BD67B') }, uTime: { value: 0 }, uAlpha: { value: 0.75 }, uLen: { value: len } },
+    uniforms: { uColor: { value: new THREE.Color('#B0CE88') }, uTime: { value: 0 }, uAlpha: { value: 0.75 }, uLen: { value: len } },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: `uniform vec3 uColor; uniform float uTime; uniform float uAlpha; uniform float uLen; varying vec2 vUv;
       void main(){ float d = step(0.45, fract(vUv.y * uLen / 1.6 - uTime * 0.6)); float edge = smoothstep(0.0, 0.25, vUv.x) * smoothstep(1.0, 0.75, vUv.x);
@@ -964,7 +964,7 @@ function wedgeMesh(apex, xa, xb, zEnd) {
   geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0.5, 0, 0, 1, 1, 1]), 2));
   const mat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide,
-    uniforms: { uColor: { value: new THREE.Color('#2BD67B') }, uAlpha: { value: 0.16 } },
+    uniforms: { uColor: { value: new THREE.Color('#B0CE88') }, uAlpha: { value: 0.16 } },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: 'uniform vec3 uColor; uniform float uAlpha; varying vec2 vUv; void main(){ gl_FragColor = vec4(uColor, uAlpha * (1.0 - vUv.y * 0.85)); }',
   });

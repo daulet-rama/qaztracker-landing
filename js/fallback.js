@@ -542,7 +542,7 @@ export function createFallbackScene(container, opts = {}) {
         const fill = f.term ? f.color : shade(f.color, 0.72 + 0.34 * lum);
         const sp = pts.map(proj);
         sp.forEach((q) => grow(o.id, q[0], q[1]));
-        faces.push({ d: fc[0] + fc[1] * 0.2 + fc[2] + (f.decal ? 0.05 : 0), svg: `<polygon points="${ptsStr(sp)}" fill="${fill}" stroke="${fill}" stroke-width="0.6" stroke-linejoin="round"${f.tag ? ` data-tag="${f.tag}"` : ""}/>` + (f.term ? `<circle cx="${f1((sp[2][0] + sp[3][0]) / 2)}" cy="${f1(sp[3][1] + 3)}" r="1.6" fill="#4fd17f"/>` : "") });
+        faces.push({ d: fc[0] + fc[1] * 0.2 + fc[2] + (f.decal ? 0.05 : 0), svg: `<polygon points="${ptsStr(sp)}" fill="${fill}" stroke="${fill}" stroke-width="0.6" stroke-linejoin="round"${f.tag ? ` data-tag="${f.tag}"` : ""}/>` + (f.term ? `<circle cx="${f1((sp[2][0] + sp[3][0]) / 2)}" cy="${f1(sp[3][1] + 3)}" r="1.6" fill="#B0CE88"/>` : "") });
       }
       faces.sort((a, b) => a.d - b.d);
       let extra = "";
@@ -551,7 +551,7 @@ export function createFallbackScene(container, opts = {}) {
         const ang = barrierOpen ? -72 : 0;
         extra += `<g class="arm" data-arm style="transform-origin:${f1(a[0])}px ${f1(a[1])}px; transform: rotate(${ang}deg)"><line x1="${f1(a[0])}" y1="${f1(a[1])}" x2="${f1(b[0])}" y2="${f1(b[1])}" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round"/><line x1="${f1(a[0])}" y1="${f1(a[1])}" x2="${f1(b[0])}" y2="${f1(b[1])}" stroke="#d2402f" stroke-width="4.5" stroke-dasharray="7 7" stroke-linecap="round"/></g>`;
         const s0 = T(o.beam.from), s1 = T(o.beam.to[0]), s2 = T(o.beam.to[1]);
-        extra += `<polygon class="beam" data-beam points="${ptsStr([s0, s1, s2])}" fill="#4fd17f"/>`;
+        extra += `<polygon class="beam" data-beam points="${ptsStr([s0, s1, s2])}" fill="#B0CE88"/>`;
       }
       if (o.led) {
         const l = T(o.led);
@@ -632,8 +632,8 @@ export function createFallbackScene(container, opts = {}) {
     const pr = T([46.8, 2.6, 80.6]);
     const fb = farmBounds();
     const cloudX = pr[0] + 80, cloudY = pr[1] - 200;
-    const cloud = `<g class="cloud" data-part="processor"><path class="link-line" d="M${f1(pr[0])},${f1(pr[1])} C${f1(pr[0])},${f1(pr[1] - 110)} ${f1(cloudX)},${f1(cloudY + 90)} ${f1(cloudX)},${f1(cloudY + 16)}" fill="none" stroke="#1f7a3f" stroke-width="2" opacity=".7"/>`
-      + `<g transform="translate(${f1(cloudX)} ${f1(cloudY)})"><path d="M-38,14 h76 a16,16 0 0 0 -4,-31 a24,24 0 0 0 -45,-6 a18,18 0 0 0 -27,37 z" fill="#ffffff" stroke="#d3e0e6" stroke-width="1.2"/><text x="0" y="6" text-anchor="middle" font-size="10.5" font-weight="600" fill="#1f7a3f" font-family="Onest, system-ui, sans-serif">облако в РК</text></g></g>`;
+    const cloud = `<g class="cloud" data-part="processor"><path class="link-line" d="M${f1(pr[0])},${f1(pr[1])} C${f1(pr[0])},${f1(pr[1] - 110)} ${f1(cloudX)},${f1(cloudY + 90)} ${f1(cloudX)},${f1(cloudY + 16)}" fill="none" stroke="#043915" stroke-width="2" opacity=".7"/>`
+      + `<g transform="translate(${f1(cloudX)} ${f1(cloudY)})"><path d="M-38,14 h76 a16,16 0 0 0 -4,-31 a24,24 0 0 0 -45,-6 a18,18 0 0 0 -27,37 z" fill="#ffffff" stroke="#d3e0e6" stroke-width="1.2"/><text x="0" y="6" text-anchor="middle" font-size="10.5" font-weight="600" fill="#043915" font-family="Onest, system-ui, sans-serif">облако в РК</text></g></g>`;
 
     // метки
     let pins = "";
@@ -644,7 +644,7 @@ export function createFallbackScene(container, opts = {}) {
       if (!pp) continue;
       const tw = label.length * 6.1 + 14;
       pins += `<g class="pin" data-pin="${id}" data-x="${f1(pp[0])}" data-y="${f1(pp[1])}" transform="translate(${f1(pp[0])} ${f1(pp[1])})">`
-        + `<path d="M0,0 C-3,-6 -9,-9 -9,-16 a9,9 0 0 1 18,0 C9,-9 3,-6 0,0z" fill="${id === "processor" ? "#0b3d24" : "#1f7a3f"}"/><circle cx="0" cy="-16" r="3.6" fill="#fff"/>`
+        + `<path d="M0,0 C-3,-6 -9,-9 -9,-16 a9,9 0 0 1 18,0 C9,-9 3,-6 0,0z" fill="${id === "processor" ? "#043915" : "#043915"}"/><circle cx="0" cy="-16" r="3.6" fill="#fff"/>`
         + `<g transform="translate(13 -24)"><rect width="${f1(tw)}" height="17" rx="8.5" fill="rgba(255,255,255,.92)" stroke="rgba(15,33,24,.08)"/><text class="pin-label" x="7" y="12">${label}</text></g></g>`;
     }
 
